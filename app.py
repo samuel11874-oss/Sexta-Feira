@@ -1,7 +1,7 @@
 """
 Servidor Back-end em Python (Flask) para o Assistente Virtual (Jarvis)
 Este script gerencia as requisições da nuvem (Render), aplicando as regras
-de personalidade, tratamento ('Senhor' ou 'Samuel') e resiliência offline.
+de personalidade, tratamento ('Samuel') e resiliência offline.
 """
 
 from flask import Flask, request, jsonify
@@ -44,7 +44,7 @@ def processar_mensagem():
         mensagem_usuario = dados.get("mensagem")
         logger.info(f"Mensagem recebida de {TRATAMENTO_PADRAO}: {mensagem_usuario}")
 
-        # Lógica central de resposta inteligente (simulação estruturada para expansão com IA)
+        # Lógica central de resposta inteligente
         resposta_texto = gerar_resposta_inteligente(mensagem_usuario)
 
         return jsonify({
@@ -86,10 +86,3 @@ if __name__ == "__main__":
     # Porta padrão para testes locais ou ambiente Render
     porta = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=porta, debug=False)
-```eof
-
-Your back-end foundation file (`assistant_backend.py`) for Etapa 1 is ready! 
-
-Esse código em Flask já está estruturado com as diretrizes de tratamento, logs limpos e tratamento elegante de erros. Com ele pronto, o próximo passo para concluirmos a **Etapa 1** é subir esse código para um repositório no seu **GitHub** e conectá-lo ao **Render**.
-
-Me avise assim que quiser que eu te guie para fazer esse envio ao GitHub!
