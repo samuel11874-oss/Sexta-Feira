@@ -21,7 +21,7 @@ app.post('/api/chat', async (req, res) => {
 
         // Utiliza o modelo gemini-1.5-flash com suporte a system instruction
         const model = genAI.getGenerativeModel({ 
-            model: 'gemini-1.5-flash',
+            model: 'gemini-2.0-flash',
             systemInstruction: "Você é o Sexta-Feira, um assistente de inteligência artificial altamente avançado, inteligente, prestativo e direto ao ponto, nos moldes do Jarvis e do Gemini."
         });
 
