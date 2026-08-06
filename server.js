@@ -1,96 +1,81 @@
 const express = require('express');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-
 const app = express();
 app.use(express.json());
 
-// Inicialização da API do Google com a chave de ambiente
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// Etapa 1 & 3: Configuração do modelo 3.5-flash com System Prompt e Function Calling
-const model = genAI.getGenerativeModel({
-  model: "gemini-3.5-flash",
-  systemInstruction: "Você é o Sexta-Feira, um assistente virtual inteligente, focado em dar respostas diretas, eficientes e práticas. Ajude o usuário com clareza e precisão.",
-  tools: [{
-    functionDeclarations: [
-      {
-        name: "consultarClima",
-        description: "Consulta o clima atual de uma cidade",
-        parameters: {
-          type: "OBJECT",
-          properties: {
-            cidade: { type: "STRING", description: "Nome da cidade" }
-          },
-          required: ["cidade"]
-        }
-      }
-    ]
-  }]
-});
-
-// Etapa 2: Inicialização da sessão de chat para manter o histórico de conversas
-const chat = model.startChat({ history: [] });
-
-// Etapa 4: Função com tentativas automáticas (Retry) para resiliência de rede
-async function chamarComRetry(chatSession, mensagem, tentativas = 3) {
-  for (let i = 0; i < tentativas; i++) {
-    try {
-      const result = await chatSession.sendMessage(mensagem);
-      return await result.response;
-    } catch (error) {
-      console.warn(`Tentativa ${i + 1} falhou. Tentando novamente...`, error.message);
-      if (i === tentativas - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Espera 2 segundos antes de tentar de novo
-    }
-  }
-}
-
-// Rota principal do servidor para receber as mensagens do aplicativo
 app.post('/chat', async (req, res) => {
+  console.log("=== [INVESTIGAÇÃO] Nova requisição recebida ===");
+  
   try {
     const mensagemUsuario = req.body.mensagem || req.body.message;
+    console.log(`[INVESTIGAÇÃO] Mensagem recebida: "${mensagemUsuario}"`);
+
     if (!mensagemUsuario) {
-      return res.status(400).json({ erro: "Mensagem não informada." });
+      console.log("[INVESTIGAÇÃO] Erro: Mensagem vazia.");
+      return res.status(400).json({ resposta: "Erro: Mensagem não informada." });
     }
 
-    console.log(`Mensagem recebida do usuário: ${mensagemUsuario}`);
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.log("[INVESTIGAÇÃO] ERRO CRÍTICO: GEMINI_API_KEY não configurada no Render!");
+      return res.status(200).json({ resposta: "Erro: Chave GEMINI_API_KEY ausente no Render." });
+    }
 
-    // Executa a chamada mantendo histórico e retry
-    const response = await chamarComRetry(chat, mensagemUsuario);
+    // Diagnóstico seguro da chave (exibe apenas os primeiros caracteres e o tamanho total)
+    const prefixoChave = apiKey.substring(0, 4);
+    console.log(`[INVESTIGAÇÃO] Chave detectada -> Prefixo: ${prefixoChave}... | Tamanho: ${apiKey.length} caracteres`);
+
+    // URL oficial com autenticação por parâmetro de chave (funciona com qualquer chave válida do Google Cloud/AI Studio)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
     
-    // Tratamento de Function Calling caso o modelo decida chamar a ferramenta
-    const calls = response.functionCalls ? response.functionCalls() : null;
-    if (calls && calls.length > 0) {
-      const call = calls[0];
-      let resultadoFuncao = "";
-      
-      if (call.name === "consultarClima") {
-        const cidade = call.args.cidade || "sua região";
-        resultadoFuncao = `O clima atual em ${cidade} está verificado e operando normalmente.`;
-      }
+    console.log("[INVESTIGAÇÃO] Enviando requisição para a API do Google...");
 
-      // Envia o resultado da função de volta para o modelo continuar o fluxo
-      const followUpResult = await chat.sendMessage([{
-        functionResponse: {
-          name: call.name,
-          response: { resultado: resultadoFuncao }
-        }
-      }]);
-      const finalResponse = await followUpResult.response;
-      return res.json({ resposta: finalResponse.text() });
+    const apiResponse = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: mensagemUsuario }]
+        }]
+      })
+    });
+
+    console.log(`[INVESTIGAÇÃO] Status HTTP retornado pelo Google: ${apiResponse.status} ${apiResponse.statusText}`);
+
+    const responseText = await apiResponse.text();
+    let data;
+    try {
+      data = JSON.parse(responseText);
+    } catch (e) {
+      console.log("[INVESTIGAÇÃO] A resposta do Google não veio em JSON:", responseText);
+      return res.status(200).json({ resposta: `Erro API (Formato Inválido): ${responseText.substring(0, 80)}` });
     }
 
-    const textoResposta = response.text();
-    console.log(`Resposta gerada pela IA: ${textoResposta}`);
+    // Se o Google recusar, enviamos a mensagem de erro direto para a tela do app
+    if (!apiResponse.ok) {
+      console.error("[INVESTIGAÇÃO] Detalhes do erro do Google:", JSON.stringify(data, null, 2));
+      const mensagemErroGoogle = data.error?.message || "Erro desconhecido na API";
+      return res.status(200).json({ resposta: `Google [${apiResponse.status}]: ${mensagemErroGoogle}` });
+    }
+
+    // Extrai o texto gerado pela IA
+    const textoResposta = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!textoResposta) {
+      console.error("[INVESTIGAÇÃO] Estrutura de resposta inesperada:", JSON.stringify(data, null, 2));
+      return res.status(200).json({ resposta: "Erro: Resposta vazia recebida da IA." });
+    }
+
+    console.log(`[INVESTIGAÇÃO] Sucesso absoluto! Resposta gerada: "${textoResposta}"`);
     res.json({ resposta: textoResposta });
 
   } catch (error) {
-    console.error("--- ERRO DETALHADO NA IA ---", error);
-    res.status(500).json({ erro: error.message });
+    console.error("--- [INVESTIGAÇÃO] EXCEÇÃO NO SERVIDOR ---", error);
+    res.status(200).json({ resposta: `Erro Interno do Servidor: ${error.message}` });
   }
 });
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor do Sexta-Feira rodando na porta ${PORT}`);
+  console.log(`Servidor de Investigação do Sexta-Feira rodando na porta ${PORT}`);
 });
