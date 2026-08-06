@@ -1,65 +1,48 @@
 const express = require('express');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
 const app = express();
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-app.post('/chat', async (req, res) => {
-  try {
-    const mensagemUsuario = req.body.mensagem || req.body.message || req.body.text;
-    if (!mensagemUsuario) {
-      return res.status(400).json({ 
-        resposta: "Mensagem não informada.", 
-        reply: "Mensagem não informada.",
-        text: "Mensagem não informada." 
-      });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+app.post('/api/chat', async (req, res) => {
+    try {
+        const userMessage = req.body.text || req.body.query || Object.keys(req.body)[0];
+        
+        if (!userMessage) {
+            return res.status(400).json({ resposta: "Por favor, envie uma mensagem válida." });
+        }
+
+        console.log(`Mensagem recebida do usuário: ${userMessage}`);
+
+        const model = genAI.getGenerativeModel({ 
+            model: 'gemini-3.5-flash',
+            systemInstruction: "Você é o Sexta-Feira, um assistente de inteligência artificial altamente avançado, inteligente, prestativo e direto ao ponto, nos moldes do Jarvis e do Gemini."
+        });
+
+        const result = await model.generateContent(userMessage);
+        const response = await result.response;
+        const aiResponseText = response.text();
+
+        console.log(`Resposta gerada pela IA: ${aiResponseText}`);
+
+        res.json({ resposta: aiResponseText });
+
+    } catch (error) {
+        console.error("--- ERRO DETALHADO NA IA ---");
+        console.error("Mensagem do erro:", error.message);
+        console.error("-----------------------------");
+
+        res.status(500).json({ 
+            resposta: `Erro no servidor: ${error.message || "Erro desconhecido ao chamar a IA"}` 
+        });
     }
-
-    console.log(`Mensagem recebida: ${mensagemUsuario}`);
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-    const apiResponse = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: mensagemUsuario }] }]
-      })
-    });
-
-    const data = await apiResponse.json();
-
-    if (!apiResponse.ok) {
-      const erroMsg = data.error?.message || "Erro na API do Google";
-      console.error("Erro do Google:", erroMsg);
-      // Retorna em todas as chaves possíveis para o app ler e exibir na tela
-      return res.json({ 
-        resposta: `Erro Google: ${erroMsg}`, 
-        reply: `Erro Google: ${erroMsg}`, 
-        text: `Erro Google: ${erroMsg}` 
-      });
-    }
-
-    const textoResposta = data.candidates?.[0]?.content?.parts?.[0]?.text || "Sem resposta da IA.";
-    console.log(`Resposta gerada: ${textoResposta}`);
-
-    // Retorna a resposta em múltiplos formatos para garantir compatibilidade total com o app
-    res.json({ 
-      resposta: textoResposta, 
-      reply: textoResposta, 
-      text: textoResposta 
-    });
-
-  } catch (error) {
-    console.error("Erro interno:", error);
-    res.json({ 
-      resposta: `Erro interno: ${error.message}`, 
-      reply: `Erro interno: ${error.message}`, 
-      text: `Erro interno: ${error.message}` 
-    });
-  }
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
+    console.log(`Servidor do Sexta-Feira rodando na porta ${PORT}`);
 });
