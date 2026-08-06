@@ -2,50 +2,95 @@ const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
-
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Inicializa com o SDK clássico e seguro do Google
+// Inicialização da API do Google com a chave de ambiente
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-app.post('/api/chat', async (req, res) => {
-    try {
-        const userMessage = req.body.text || req.body.query || Object.keys(req.body)[0];
-        
-        if (!userMessage) {
-            return res.status(400).json({ resposta: "Por favor, envie uma mensagem válida." });
+// Etapa 1 & 3: Configuração do modelo 3.5-flash com System Prompt e Function Calling
+const model = genAI.getGenerativeModel({
+  model: "gemini-3.5-flash",
+  systemInstruction: "Você é o Sexta-Feira, um assistente virtual inteligente, focado em dar respostas diretas, eficientes e práticas. Ajude o usuário com clareza e precisão.",
+  tools: [{
+    functionDeclarations: [
+      {
+        name: "consultarClima",
+        description: "Consulta o clima atual de uma cidade",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            cidade: { type: "STRING", description: "Nome da cidade" }
+          },
+          required: ["cidade"]
         }
-
-        console.log(`Mensagem recebida do usuário: ${userMessage}`);
-
-        // Utiliza o modelo gemini-1.5-flash com suporte a system instruction
-        const model = genAI.getGenerativeModel({ 
-            model: 'gemini-3.5-flash',
-            systemInstruction: "Você é o Sexta-Feira, um assistente de inteligência artificial altamente avançado, inteligente, prestativo e direto ao ponto, nos moldes do Jarvis e do Gemini."
-        });
-
-        const result = await model.generateContent(userMessage);
-        const response = await result.response;
-        const aiResponseText = response.text();
-
-        console.log(`Resposta gerada pela IA: ${aiResponseText}`);
-
-        res.json({ resposta: aiResponseText });
-
-    } catch (error) {
-        console.error("--- ERRO DETALHADO NA IA ---");
-        console.error("Mensagem do erro:", error.message);
-        console.error("Stack trace:", error.stack);
-        console.error("-----------------------------");
-
-        res.status(500).json({ 
-            resposta: `Erro no servidor: ${error.message || "Erro desconhecido ao chamar a IA"}` 
-        });
-    }
+      }
+    ]
+  }]
 });
 
-const PORT = process.env.PORT || 3000;
+// Etapa 2: Inicialização da sessão de chat para manter o histórico de conversas
+const chat = model.startChat({ history: [] });
+
+// Etapa 4: Função com tentativas automáticas (Retry) para resiliência de rede
+async function chamarComRetry(chatSession, mensagem, tentativas = 3) {
+  for (let i = 0; i < tentativas; i++) {
+    try {
+      const result = await chatSession.sendMessage(mensagem);
+      return await result.response;
+    } catch (error) {
+      console.warn(`Tentativa ${i + 1} falhou. Tentando novamente...`, error.message);
+      if (i === tentativas - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Espera 2 segundos antes de tentar de novo
+    }
+  }
+}
+
+// Rota principal do servidor para receber as mensagens do aplicativo
+app.post('/chat', async (req, res) => {
+  try {
+    const mensagemUsuario = req.body.mensagem || req.body.message;
+    if (!mensagemUsuario) {
+      return res.status(400).json({ erro: "Mensagem não informada." });
+    }
+
+    console.log(`Mensagem recebida do usuário: ${mensagemUsuario}`);
+
+    // Executa a chamada mantendo histórico e retry
+    const response = await chamarComRetry(chat, mensagemUsuario);
+    
+    // Tratamento de Function Calling caso o modelo decida chamar a ferramenta
+    const calls = response.functionCalls ? response.functionCalls() : null;
+    if (calls && calls.length > 0) {
+      const call = calls[0];
+      let resultadoFuncao = "";
+      
+      if (call.name === "consultarClima") {
+        const cidade = call.args.cidade || "sua região";
+        resultadoFuncao = `O clima atual em ${cidade} está verificado e operando normalmente.`;
+      }
+
+      // Envia o resultado da função de volta para o modelo continuar o fluxo
+      const followUpResult = await chat.sendMessage([{
+        functionResponse: {
+          name: call.name,
+          response: { resultado: resultadoFuncao }
+        }
+      }]);
+      const finalResponse = await followUpResult.response;
+      return res.json({ resposta: finalResponse.text() });
+    }
+
+    const textoResposta = response.text();
+    console.log(`Resposta gerada pela IA: ${textoResposta}`);
+    res.json({ resposta: textoResposta });
+
+  } catch (error) {
+    console.error("--- ERRO DETALHADO NA IA ---", error);
+    res.status(500).json({ erro: error.message });
+  }
+});
+
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-    console.log(`Servidor do Sexta-Feira rodando na porta ${PORT}`);
+  console.log(`Servidor do Sexta-Feira rodando na porta ${PORT}`);
 });
