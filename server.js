@@ -19,9 +19,9 @@ app.post('/api/chat', async (req, res) => {
 
         console.log(`Mensagem recebida do usuário: ${userMessage}`);
 
-        // Chamada direta para testar a resposta do modelo
+        // Usando o modelo correto suportado pelo SDK atual do Google Gen AI
         const response = await ai.models.generateContent({
-            model: 'gemini-1.5-flash',
+            model: 'gemini-1.5-flash-latest',
             contents: userMessage,
             config: {
                 tools: [{ googleSearch: {} }],
@@ -35,10 +35,9 @@ app.post('/api/chat', async (req, res) => {
         res.json({ resposta: aiResponseText });
 
     } catch (error) {
-        // DETALHE DO ERRO NO LOG DO RENDER
         console.error("--- ERRO DETALHADO NA IA ---");
         console.error("Mensagem do erro:", error.message);
-        console.error("Stack trace completo:", error.stack);
+        console.error("JSON do erro:", JSON.stringify(error, null, 2));
         console.error("-----------------------------");
 
         res.status(500).json({ 
