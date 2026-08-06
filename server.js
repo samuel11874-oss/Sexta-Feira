@@ -1,14 +1,7 @@
 const express = require('express');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 app.use(express.json());
-
-// Mantém a sua chave AQ... configurada nas variáveis de ambiente do Render
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// Usa o modelo oficial e reconhecido para evitar o erro "not found"
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 app.post('/chat', async (req, res) => {
   try {
@@ -19,15 +12,35 @@ app.post('/chat', async (req, res) => {
 
     console.log(`Mensagem recebida do usuário: ${mensagemUsuario}`);
 
-    const result = await model.generateContent(mensagemUsuario);
-    const response = await result.response;
-    const textoResposta = response.text();
+    const token = process.env.GEMINI_API_KEY;
+    const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent";
 
+    const apiResponse = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{ text: mensagemUsuario }]
+        }]
+      })
+    });
+
+    const data = await apiResponse.json();
+
+    if (!apiResponse.ok) {
+      console.error("Erro retornado pela API:", data);
+      return res.status(500).json({ erro: data.error?.message || "Erro na comunicação com a IA." });
+    }
+
+    const textoResposta = data.candidates?.[0]?.content?.parts?.[0]?.text || "Sem resposta da IA.";
     console.log(`Resposta gerada pela IA: ${textoResposta}`);
     res.json({ resposta: textoResposta });
 
   } catch (error) {
-    console.error("--- ERRO DETALHADO NA IA ---", error);
+    console.error("--- ERRO NO SERVIDOR ---", error);
     res.status(500).json({ erro: error.message });
   }
 });
