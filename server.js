@@ -19,10 +19,10 @@ app.post('/api/chat', async (req, res) => {
 
         console.log(`Mensagem recebida do usuário: ${userMessage}`);
 
-        // Usando o modelo correto suportado pelo SDK atual do Google Gen AI
+        // Chamada utilizando o modelo padrão suportado pelo SDK
         const response = await ai.models.generateContent({
-            model: 'gemini-1.5-flash-latest',
-            contents: userMessage,
+            model: 'gemini-1.5-flash',
+            contents: [userMessage],
             config: {
                 tools: [{ googleSearch: {} }],
                 systemInstruction: "Você é o Sexta-Feira, um assistente de inteligência artificial altamente avançado, inteligente, prestativo e direto ao ponto, nos moldes do Jarvis e do Gemini."
