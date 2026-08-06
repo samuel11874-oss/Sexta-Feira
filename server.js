@@ -23,7 +23,7 @@ app.post('/api/chat', async (req, res) => {
 
         // Chama o modelo Gemini ativando a ferramenta de busca do Google (Grounding)
         const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-1.5-flash',
             contents: userMessage,
             config: {
                 // Ativa o Google Search para pesquisas na web em tempo real
