@@ -7,8 +7,8 @@ app.use(express.json());
 // Inicialização da API do Google com a chave de ambiente
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Usando o modelo gemini-3.5-flash de forma direta e estável
-const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+// Usando o modelo oficial e estável gemini-1.5-flash
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // Rota principal do servidor para receber as mensagens do aplicativo
 app.post('/chat', async (req, res) => {
@@ -20,7 +20,6 @@ app.post('/chat', async (req, res) => {
 
     console.log(`Mensagem recebida do usuário: ${mensagemUsuario}`);
 
-    // Geração de conteúdo direta e sem conflitos
     const result = await model.generateContent(mensagemUsuario);
     const response = await result.response;
     const textoResposta = response.text();
