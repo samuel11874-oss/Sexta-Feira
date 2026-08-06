@@ -7,28 +7,8 @@ app.use(express.json());
 // Inicialização da API do Google com a chave de ambiente
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Correção: Usando o modelo oficial e funcional gemini-1.5-flash
-const model = genAI.getGenerativeModel({
-  model: "gemini-1.5-flash",
-  systemInstruction: "Você é o Sexta-Feira, um assistente virtual inteligente, focado em dar respostas diretas, eficientes e práticas. Ajude o usuário com clareza e precisão."
-});
-
-// Inicialização da sessão de chat para manter o histórico de conversas na memória
-const chat = model.startChat({ history: [] });
-
-// Função com tentativas automáticas (Retry) para resiliência de rede
-async function chamarComRetry(chatSession, mensagem, tentativas = 3) {
-  for (let i = 0; i < tentativas; i++) {
-    try {
-      const result = await chatSession.sendMessage(mensagem);
-      return await result.response;
-    } catch (error) {
-      console.warn(`Tentativa ${i + 1} falhou. Tentando novamente...`, error.message);
-      if (i === tentativas - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-  }
-}
+// Usando o modelo gemini-3.5-flash de forma direta e estável
+const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
 
 // Rota principal do servidor para receber as mensagens do aplicativo
 app.post('/chat', async (req, res) => {
@@ -40,7 +20,9 @@ app.post('/chat', async (req, res) => {
 
     console.log(`Mensagem recebida do usuário: ${mensagemUsuario}`);
 
-    const response = await chamarComRetry(chat, mensagemUsuario);
+    // Geração de conteúdo direta e sem conflitos
+    const result = await model.generateContent(mensagemUsuario);
+    const response = await result.response;
     const textoResposta = response.text();
 
     console.log(`Resposta gerada pela IA: ${textoResposta}`);
