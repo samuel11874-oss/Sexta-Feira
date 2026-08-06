@@ -1,13 +1,13 @@
 const express = require('express');
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Inicializa a IA
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// Inicializa com o SDK clássico e seguro do Google
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.post('/api/chat', async (req, res) => {
     try {
@@ -19,17 +19,16 @@ app.post('/api/chat', async (req, res) => {
 
         console.log(`Mensagem recebida do usuário: ${userMessage}`);
 
-        // Chamada utilizando o modelo padrão suportado pelo SDK
-        const response = await ai.models.generateContent({
+        // Utiliza o modelo gemini-1.5-flash com suporte a system instruction
+        const model = genAI.getGenerativeModel({ 
             model: 'gemini-1.5-flash',
-            contents: [userMessage],
-            config: {
-                tools: [{ googleSearch: {} }],
-                systemInstruction: "Você é o Sexta-Feira, um assistente de inteligência artificial altamente avançado, inteligente, prestativo e direto ao ponto, nos moldes do Jarvis e do Gemini."
-            }
+            systemInstruction: "Você é o Sexta-Feira, um assistente de inteligência artificial altamente avançado, inteligente, prestativo e direto ao ponto, nos moldes do Jarvis e do Gemini."
         });
 
-        const aiResponseText = response.text || "Não consegui processar uma resposta no momento.";
+        const result = await model.generateContent(userMessage);
+        const response = await result.response;
+        const aiResponseText = response.text();
+
         console.log(`Resposta gerada pela IA: ${aiResponseText}`);
 
         res.json({ resposta: aiResponseText });
@@ -37,7 +36,7 @@ app.post('/api/chat', async (req, res) => {
     } catch (error) {
         console.error("--- ERRO DETALHADO NA IA ---");
         console.error("Mensagem do erro:", error.message);
-        console.error("JSON do erro:", JSON.stringify(error, null, 2));
+        console.error("Stack trace:", error.stack);
         console.error("-----------------------------");
 
         res.status(500).json({ 
