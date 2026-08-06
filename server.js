@@ -4,13 +4,12 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const app = express();
 app.use(express.json());
 
-// Inicialização da API do Google com a chave de ambiente
+// Mantém a sua chave AQ... configurada nas variáveis de ambiente do Render
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Usando o modelo oficial e estável gemini-1.5-flash
+// Usa o modelo oficial e reconhecido para evitar o erro "not found"
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// Rota principal do servidor para receber as mensagens do aplicativo
 app.post('/chat', async (req, res) => {
   try {
     const mensagemUsuario = req.body.mensagem || req.body.message;
