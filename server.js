@@ -7,9 +7,9 @@ app.use(express.json());
 // Inicialização da API do Google com a chave de ambiente
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Configuração do modelo 3.5-flash com System Prompt (Personalidade do Sexta-Feira)
+// Correção: Usando o modelo oficial e funcional gemini-1.5-flash
 const model = genAI.getGenerativeModel({
-  model: "gemini-3.5-flash",
+  model: "gemini-1.5-flash",
   systemInstruction: "Você é o Sexta-Feira, um assistente virtual inteligente, focado em dar respostas diretas, eficientes e práticas. Ajude o usuário com clareza e precisão."
 });
 
@@ -25,7 +25,7 @@ async function chamarComRetry(chatSession, mensagem, tentativas = 3) {
     } catch (error) {
       console.warn(`Tentativa ${i + 1} falhou. Tentando novamente...`, error.message);
       if (i === tentativas - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Espera 2 segundos antes de tentar de novo
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 }
@@ -40,7 +40,6 @@ app.post('/chat', async (req, res) => {
 
     console.log(`Mensagem recebida do usuário: ${mensagemUsuario}`);
 
-    // Executa a chamada mantendo o histórico de chat e o sistema de retry
     const response = await chamarComRetry(chat, mensagemUsuario);
     const textoResposta = response.text();
 
