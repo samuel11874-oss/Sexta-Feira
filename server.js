@@ -52,52 +52,23 @@ async function processarChatUniversal(req, res) {
     console.log(`Mensagem extraída: "${mensagemUsuario}"`);
 
     let textoResposta = "";
-    let provedorUsado = "";
 
-    // 1. TENTA GEMINI PRIMEIRO (Utilizando o modelo 3.5)
+    // TENTATIVA 1: Gemini 3.5 Flash
     try {
-      textoResposta = await chamarGemini(mensagemUsuario);
-      provedorUsado = "Gemini (Principal)";
-    } catch (errGemini) {
-      console.log("Gemini falhou, tentando Groq como fallback...", errGemini.message);
-    }
-
-    // 2. SE O GEMINI FALHAR, TENTA GROQ
-    if (!textoResposta) {
+      textoResposta = await chamarGemini(mensagemUsuario, "gemini-3.5-flash");
+      console.log("Sucesso gerado via: Gemini 3.5 Flash");
+    } catch (err1) {
+      console.log("Gemini 3.5 com alta demanda, alternando para Gemini 1.5 Flash...", err1.message);
+      
+      // TENTATIVA 2: Gemini 1.5 Flash (Backup interno para evitar falhas)
       try {
-        const groqKey = process.env.GROQ_API_KEY;
-        if (groqKey) {
-          const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${groqKey}`
-            },
-            body: JSON.stringify({
-              model: "llama-3.3-70b-versatile",
-              messages: [
-                { role: "system", content: SISTEMA_IDENTIDADE },
-                { role: "user", content: mensagemUsuario }
-              ]
-            })
-          });
-          const groqData = await groqResponse.json();
-          if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
-            textoResposta = groqData.choices[0].message.content;
-            provedorUsado = "Groq (Fallback)";
-          }
-        }
-      } catch (errGroq) {
-        console.log("Groq fallback também falhou:", errGroq.message);
+        textoResposta = await chamarGemini(mensagemUsuario, "gemini-1.5-flash");
+        console.log("Sucesso gerado via: Gemini 1.5 Flash (Backup)");
+      } catch (err2) {
+        console.log("Ambos os modelos do Gemini falharam:", err2.message);
+        textoResposta = "Oi Samuel! Sou a Sexta-Feira. Os servidores do Google estão passando por alta demanda neste momento. Por favor, envie a mensagem novamente em instantes!";
       }
     }
-
-    if (!textoResposta) {
-      textoResposta = "Olá Samuel! Sou a Sexta-Feira. Tivemos uma instabilidade momentânea, mas já estou pronta para ajudar.";
-      provedorUsado = "Sistema (Emergência)";
-    }
-
-    console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
 
     return res.json({ 
       resposta: textoResposta, 
@@ -115,14 +86,14 @@ async function processarChatUniversal(req, res) {
   }
 }
 
-// Função dedicada ao Gemini utilizando o modelo 3.5
-async function chamarGemini(mensagemUsuario) {
+// Função dedicada ao Gemini com suporte a múltiplos modelos
+async function chamarGemini(mensagemUsuario, modelo) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     throw new Error("A chave GEMINI_API_KEY não está configurada!");
   }
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${geminiKey}`;
 
   const geminiResponse = await fetch(geminiUrl, {
     method: "POST",
@@ -148,5 +119,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (Gemini 3.5 Ativo) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (100% Gemini Robusto) rodando na porta ${PORT}`);
 });
