@@ -1,24 +1,40 @@
 const express = require('express');
 const app = express();
 
+// Configurações para aceitar JSON, formulários e TEXTO PURO (fundamental para o app)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.text()); 
 
-// Função centralizada e universal para processar o chat (Groq + Gemini)
 async function processarChatUniversal(req, res) {
   try {
-    // Captura a mensagem independentemente de como o app envie (corpo JSON ou parâmetros)
-    const mensagemUsuario = req.body.mensagem || req.body.message || req.body.text || req.query.mensagem || req.query.text;
-    
-    if (!mensagemUsuario) {
+    let mensagemUsuario = "";
+
+    // 1. Identifica se o app enviou texto puro (string direta) ou JSON
+    if (typeof req.body === 'string' && req.body.trim() !== "") {
+      mensagemUsuario = req.body;
+    } else if (req.body && typeof req.body === 'object') {
+      mensagemUsuario = req.body.mensagem || req.body.message || req.body.text || req.body.query;
+    }
+
+    // 2. Se ainda estiver vazio, confere se veio por URL (Query Params)
+    if (!mensagemUsuario && req.query) {
+      mensagemUsuario = req.query.mensagem || req.query.text || req.query.q;
+    }
+
+    // Se continuar vazio, avisa nos logs
+    if (!mensagemUsuario || typeof mensagemUsuario !== 'string' || mensagemUsuario.trim() === "") {
+      console.log("Aviso: Requisição recebida, mas o corpo da mensagem veio vazio.");
       return res.json({ 
-        resposta: "Servidor online e operando.", 
-        reply: "Servidor online e operando.",
-        text: "Servidor online e operando." 
+        resposta: "Erro: Nenhuma mensagem foi enviada pelo aplicativo.", 
+        reply: "Erro: Nenhuma mensagem foi enviada pelo aplicativo.",
+        text: "Erro: Nenhuma mensagem foi enviada pelo aplicativo." 
       });
     }
 
-    console.log(`Mensagem capturada: ${mensagemUsuario}`);
+    mensagemUsuario = mensagemUsuario.trim();
+    console.log(`Mensagem processada com sucesso: ${mensagemUsuario}`);
+    
     let textoResposta = "";
     let provedorUsado = "";
 
@@ -70,9 +86,9 @@ async function processarChatUniversal(req, res) {
       }
     }
 
-    console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
+    console.log(`Sucesso absoluto! Resposta gerada via: ${provedorUsado}`);
 
-    // Retorno compatível com qualquer estrutura de blocos do app
+    // Retorno compatível com o app
     return res.json({ 
       resposta: textoResposta, 
       reply: textoResposta, 
@@ -89,7 +105,7 @@ async function processarChatUniversal(req, res) {
   }
 }
 
-// BLINDAGEM TOTAL: Qualquer rota ou método enviado pelo app cairá aqui, eliminando o "not found"
+// Intercepta qualquer rota ou método enviado pelo app
 app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
