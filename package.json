@@ -1,13 +1,13 @@
 {
   "name": "sexta-feira",
   "version": "1.0.0",
-  "description": "Servidor IA Sexta-Feira",
+  "description": "Assistente Sexta-Feira",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "mongodb": "^6.3.0"
   }
 }
