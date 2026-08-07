@@ -115,15 +115,15 @@ async function processarChatUniversal(req, res) {
   }
 }
 
-// Função dedicada ao Gemini (com instrução de sistema da Sexta-Feira)
+// Função dedicada ao Gemini com o modelo correto e compatível
 async function chamarGemini(mensagemUsuario) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     throw new Error("A chave GEMINI_API_KEY não está configurada!");
   }
 
-  // URL corrigida para o endpoint v1 com o modelo gemini-1.5-flash
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+  // Utilizando o modelo gemini-2.5-flash com a versão v1beta
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
 
   const geminiResponse = await fetch(geminiUrl, {
     method: "POST",
@@ -149,5 +149,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (Gemini na Frente) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (Gemini na Frente v2.5) rodando na porta ${PORT}`);
 });
