@@ -5,7 +5,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-let contadorRodizio = 0;
+// Identidade fixa e inegociável da assistente
+const SISTEMA_IDENTIDADE = "Você se chama Sexta-Feira. Você é a assistente pessoal inteligente e prestativa do Samuel. Nunca esqueça sua identidade: seu nome é Sexta-Feira.";
 
 async function processarChatUniversal(req, res) {
   try {
@@ -53,12 +54,16 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // Alterna o uso entre Groq e Gemini a cada nova mensagem
-    contadorRodizio++;
-    const usarGroqPrimeiro = contadorRodizio % 2 !== 0;
+    // 1. TENTA GEMINI PRIMEIRO (API na Frente)
+    try {
+      textoResposta = await chamarGemini(mensagemUsuario);
+      provedorUsado = "Gemini (Principal)";
+    } catch (errGemini) {
+      console.log("Gemini falhou, tentando Groq como fallback...", errGemini.message);
+    }
 
-    if (usarGroqPrimeiro) {
-      // 1. TENTA GROQ
+    // 2. SE O GEMINI FALHAR, TENTA GROQ (Fallback automático)
+    if (!textoResposta) {
       try {
         const groqKey = process.env.GROQ_API_KEY;
         if (groqKey) {
@@ -70,68 +75,26 @@ async function processarChatUniversal(req, res) {
             },
             body: JSON.stringify({
               model: "llama-3.3-70b-versatile",
-              messages: [{ role: "user", content: mensagemUsuario }]
-            })
-          });
-
-          const groqData = await groqResponse.json();
-          if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
-            textoResposta = groqData.choices[0].message.content;
-            provedorUsado = "Groq (Rodízio Ativo)";
-          }
-        }
-      } catch (e) {
-        console.log("Groq falhou no rodízio:", e.message);
-      }
-
-      // Se a Groq falhou, tenta o Gemini
-      if (!textoResposta) {
-        try {
-          textoResposta = await chamarGemini(mensagemUsuario);
-          provedorUsado = "Gemini (Fallback do Rodízio)";
-        } catch (errGemini) {
-          console.log("Gemini fallback também falhou:", errGemini.message);
-        }
-      }
-
-    } else {
-      // 2. TENTA GEMINI PRIMEIRO
-      try {
-        textoResposta = await chamarGemini(mensagemUsuario);
-        provedorUsado = "Gemini (Rodízio Ativo)";
-      } catch (e) {
-        console.log("Gemini falhou no rodízio:", e.message);
-      }
-
-      // Se o Gemini falhou, tenta a Groq
-      if (!textoResposta) {
-        try {
-          const groqKey = process.env.GROQ_API_KEY;
-          const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${groqKey}`
-            },
-            body: JSON.stringify({
-              model: "llama-3.3-70b-versatile",
-              messages: [{ role: "user", content: mensagemUsuario }]
+              messages: [
+                { role: "system", content: SISTEMA_IDENTIDADE },
+                { role: "user", content: mensagemUsuario }
+              ]
             })
           });
           const groqData = await groqResponse.json();
           if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
             textoResposta = groqData.choices[0].message.content;
-            provedorUsado = "Groq (Fallback do Rodízio)";
+            provedorUsado = "Groq (Fallback)";
           }
-        } catch (errGroq) {
-          console.log("Groq fallback também falhou:", errGroq.message);
         }
+      } catch (errGroq) {
+        console.log("Groq fallback também falhou:", errGroq.message);
       }
     }
 
     if (!textoResposta) {
-      textoResposta = "Erro: Ambas as APIs falharam nesta requisição.";
-      provedorUsado = "Nenhum";
+      textoResposta = "Olá Samuel! Sou a Sexta-Feira. Tivemos uma instabilidade momentânea, mas já estou pronta para ajudar.";
+      provedorUsado = "Sistema (Emergência)";
     }
 
     console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
@@ -152,19 +115,23 @@ async function processarChatUniversal(req, res) {
   }
 }
 
-// Função robusta para chamar o Gemini com logs detalhados de erro
+// Função dedicada ao Gemini (com instrução de sistema da Sexta-Feira)
 async function chamarGemini(mensagemUsuario) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
-    throw new Error("A chave GEMINI_API_KEY não está configurada nas variáveis do Render!");
+    throw new Error("A chave GEMINI_API_KEY não está configurada!");
   }
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+  // URL corrigida para o endpoint v1 com o modelo gemini-1.5-flash
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
 
   const geminiResponse = await fetch(geminiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      system_instruction: {
+        parts: [{ text: SISTEMA_IDENTIDADE }]
+      },
       contents: [{ parts: [{ text: mensagemUsuario }] }]
     })
   });
@@ -182,5 +149,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Dual-API Ativo v2 rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (Gemini na Frente) rodando na porta ${PORT}`);
 });
