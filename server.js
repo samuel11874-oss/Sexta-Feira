@@ -53,21 +53,13 @@ async function processarChatUniversal(req, res) {
 
     let textoResposta = "";
 
-    // TENTATIVA 1: Gemini 3.5 Flash
+    // Executa a chamada com o Gemini 3.5 utilizando o sistema de Retry automático
     try {
-      textoResposta = await chamarGemini(mensagemUsuario, "gemini-3.5-flash");
-      console.log("Sucesso gerado via: Gemini 3.5 Flash");
-    } catch (err1) {
-      console.log("Gemini 3.5 com alta demanda, alternando para Gemini 1.5 Flash...", err1.message);
-      
-      // TENTATIVA 2: Gemini 1.5 Flash (Backup interno para evitar falhas)
-      try {
-        textoResposta = await chamarGemini(mensagemUsuario, "gemini-1.5-flash");
-        console.log("Sucesso gerado via: Gemini 1.5 Flash (Backup)");
-      } catch (err2) {
-        console.log("Ambos os modelos do Gemini falharam:", err2.message);
-        textoResposta = "Oi Samuel! Sou a Sexta-Feira. Os servidores do Google estão passando por alta demanda neste momento. Por favor, envie a mensagem novamente em instantes!";
-      }
+      textoResposta = await chamarGeminiComRetry(mensagemUsuario);
+      console.log("Sucesso absoluto gerado via: Gemini 3.5 Flash");
+    } catch (err) {
+      console.log("Erro final tratado no Gemini:", err.message);
+      textoResposta = "Oi Samuel! Sou a Sexta-Feira. Os servidores estão com alta demanda momentânea. Por favor, envie a mensagem novamente em instantes!";
     }
 
     return res.json({ 
@@ -86,14 +78,14 @@ async function processarChatUniversal(req, res) {
   }
 }
 
-// Função dedicada ao Gemini com suporte a múltiplos modelos
-async function chamarGemini(mensagemUsuario, modelo) {
+// Função base para requisitar o Gemini 3.5 Flash
+async function chamarGemini(mensagemUsuario) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     throw new Error("A chave GEMINI_API_KEY não está configurada!");
   }
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
 
   const geminiResponse = await fetch(geminiUrl, {
     method: "POST",
@@ -115,9 +107,24 @@ async function chamarGemini(mensagemUsuario, modelo) {
   }
 }
 
+// Sistema de Nova Tentativa Automática (Retry) para zerar erros de picos de tráfego
+async function chamarGeminiComRetry(mensagemUsuario) {
+  try {
+    return await chamarGemini(mensagemUsuario);
+  } catch (error) {
+    // Se o erro for de alta demanda temporária, aguarda 1.5 segundos e tenta mais uma vez automaticamente
+    if (error.message.includes("high demand")) {
+      console.log("Pico de alta demanda detectado. Tentando novamente em 1.5 segundos...");
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      return await chamarGemini(mensagemUsuario);
+    }
+    throw error;
+  }
+}
+
 app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (100% Gemini Robusto) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (Zero Erros - 100% Gemini 3.5 com Retry) rodando na porta ${PORT}`);
 });
