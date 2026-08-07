@@ -1,46 +1,58 @@
 const express = require('express');
 const app = express();
 
-// Configurações para interceptar absolutamente qualquer formato de envio do app
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.text({ type: '*/*' })); // Captura texto cru independentemente do cabeçalho
+app.use(express.text({ type: '*/*' }));
 
 async function processarChatUniversal(req, res) {
   try {
     console.log("--- NOVA REQUISIÇÃO RECEBIDA DO APP ---");
     console.log("Método:", req.method);
-    console.log("Query Params:", JSON.stringify(req.query));
-    console.log("Corpo Bruto (Body):", req.body);
+    console.log("Corpo Bruto (Body):", JSON.stringify(req.body));
 
     let mensagemUsuario = "";
 
-    // 1. Se o corpo chegou como string de texto cru
+    // 1. Se o corpo chegou como string pura
     if (typeof req.body === 'string' && req.body.trim() !== '') {
       mensagemUsuario = req.body;
     } 
-    // 2. Se o corpo chegou como um objeto (JSON ou URL-encoded)
+    // 2. Se o corpo chegou como objeto (JSON ou formulário)
     else if (req.body && typeof req.body === 'object') {
-      mensagemUsuario = req.body.mensagem || req.body.message || req.body.text || req.body.query || req.body.value || Object.values(req.body)[0];
+      // Tenta pegar pelas propriedades tradicionais
+      mensagemUsuario = req.body.mensagem || req.body.message || req.body.text || req.body.query || req.body.value || req.body.prompt;
+      
+      // Se não achou nas propriedades, pega a CHAVE do objeto (para o caso do app mandar como { "texto_digitado": "" })
+      if (!mensagemUsuario) {
+        const chaves = Object.keys(req.body);
+        if (chaves.length > 0 && chaves[0] !== '') {
+          mensagemUsuario = chaves[0]; // Pega o texto que veio como chave
+        } else {
+          // Se a chave estiver vazia, tenta pegar o valor
+          mensagemUsuario = Object.values(req.body)[0];
+        }
+      }
     }
 
-    // 3. Fallback para parâmetros de URL, caso o app envie via GET/Query
+    // 3. Fallback para Query Params (URL)
     if (!mensagemUsuario && req.query) {
       mensagemUsuario = req.query.mensagem || req.query.text || req.query.q || req.query.message;
+      if (!mensagemUsuario) {
+        const queryChaves = Object.keys(req.query);
+        if (queryChaves.length > 0) mensagemUsuario = queryChaves[0];
+      }
     }
 
-    // Se por acaso vier como objeto interno, converte para string
     if (typeof mensagemUsuario === 'object' && mensagemUsuario !== null) {
       mensagemUsuario = JSON.stringify(mensagemUsuario);
     }
 
-    // Se continuarem vazios, avisa nos logs o que aconteceu
     if (!mensagemUsuario || typeof mensagemUsuario !== 'string' || mensagemUsuario.trim() === "") {
-      console.log("ALERTA: O app enviou uma requisição, mas o texto veio vazio.");
+      console.log("ALERTA: Nenhuma mensagem identificada.");
       return res.json({ 
-        resposta: "Erro: Nenhuma mensagem foi encontrada no envio do aplicativo.", 
-        reply: "Erro: Nenhuma mensagem foi encontrada no envio do aplicativo.",
-        text: "Erro: Nenhuma mensagem foi encontrada no envio do aplicativo." 
+        resposta: "Erro: Nenhuma mensagem foi encontrada.", 
+        reply: "Erro: Nenhuma mensagem foi encontrada.",
+        text: "Erro: Nenhuma mensagem foi encontrada." 
       });
     }
 
@@ -100,7 +112,6 @@ async function processarChatUniversal(req, res) {
 
     console.log(`Sucesso absoluto! Resposta gerada via: ${provedorUsado}`);
 
-    // Retorno compatível com o app
     return res.json({ 
       resposta: textoResposta, 
       reply: textoResposta, 
@@ -117,10 +128,9 @@ async function processarChatUniversal(req, res) {
   }
 }
 
-// Intercepta qualquer rota ou método enviado pelo app
 app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor ultrablindado do Sexta-Feira rodando na porta ${PORT}`);
+  console.log(`Servidor ultrablindado v2 rodando na porta ${PORT}`);
 });
