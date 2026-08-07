@@ -54,7 +54,7 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // 1. TENTA GEMINI PRIMEIRO (API na Frente)
+    // 1. TENTA GEMINI PRIMEIRO (Utilizando o modelo 3.5)
     try {
       textoResposta = await chamarGemini(mensagemUsuario);
       provedorUsado = "Gemini (Principal)";
@@ -62,7 +62,7 @@ async function processarChatUniversal(req, res) {
       console.log("Gemini falhou, tentando Groq como fallback...", errGemini.message);
     }
 
-    // 2. SE O GEMINI FALHAR, TENTA GROQ (Fallback automático)
+    // 2. SE O GEMINI FALHAR, TENTA GROQ
     if (!textoResposta) {
       try {
         const groqKey = process.env.GROQ_API_KEY;
@@ -115,15 +115,14 @@ async function processarChatUniversal(req, res) {
   }
 }
 
-// Função dedicada ao Gemini com o modelo correto e compatível
+// Função dedicada ao Gemini utilizando o modelo 3.5
 async function chamarGemini(mensagemUsuario) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     throw new Error("A chave GEMINI_API_KEY não está configurada!");
   }
 
-  // Utilizando o modelo gemini-2.5-flash com a versão v1beta
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
 
   const geminiResponse = await fetch(geminiUrl, {
     method: "POST",
@@ -149,5 +148,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (Gemini na Frente v2.5) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (Gemini 3.5 Ativo) rodando na porta ${PORT}`);
 });
