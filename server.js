@@ -1,4 +1,6 @@
 const express = require('express');
+const { MongoClient } = require('mongodb');
+
 const app = express();
 
 app.use(express.json());
@@ -7,6 +9,31 @@ app.use(express.text({ type: '*/*' }));
 
 // Identidade fixa e inegociável da assistente
 const SISTEMA_IDENTIDADE = "Você se chama Sexta-Feira. Você é a assistente pessoal inteligente e prestativa do Samuel. Nunca esqueça sua identidade: seu nome é Sexta-Feira.";
+
+// Configuração do MongoDB para Memória de Longo Prazo
+const mongoUri = process.env.MONGO_URI;
+let dbClient = null;
+let dbColecao = null;
+
+async function conectarBanco() {
+  if (!mongoUri) {
+    console.log("AVISO: MONGO_URI não configurada. O armazenamento de longo prazo está desativado.");
+    return;
+  }
+  try {
+    if (!dbClient) {
+      dbClient = new MongoClient(mongoUri);
+      await dbClient.connect();
+      const database = dbClient.db("sexta_feira_db");
+      dbColecao = database.collection("memorias");
+      console.log("Conectado ao MongoDB Atlas com sucesso!");
+    }
+  } catch (erro) {
+    console.error("Erro ao conectar no MongoDB:", erro.message);
+  }
+}
+
+conectarBanco();
 
 async function processarChatUniversal(req, res) {
   try {
@@ -92,18 +119,43 @@ async function processarChatUniversal(req, res) {
       }
     }
 
-    // 3. EMERGÊNCIA ABSOLUTA (Caso ambos estejam fora)
+    // 3. EMERGÊNCIA ABSOLUTA
     if (!textoResposta) {
       textoResposta = "Olá Samuel! Sou a Sexta-Feira. Tivemos uma instabilidade momentânea nas redes neurais, mas já estou pronta para ajudar novamente.";
       provedorUsado = "Sistema (Emergência)";
     }
 
+    // GERA O ÁUDIO FEMININO VIA GOOGLE TEXT-TO-SPEECH
+    let audioBase64 = "";
+    try {
+      audioBase64 = await gerarAudioGoogleTTS(textoResposta);
+    } catch (erroAudio) {
+      console.log("Aviso: Não foi possível gerar o áudio neural:", erroAudio.message);
+    }
+
+    // SALVA NO BANCO DE DADOS (MEMÓRIA)
+    if (dbColecao) {
+      try {
+        await dbColecao.insertOne({
+          data: new Date(),
+          usuario: mensagemUsuario,
+          resposta: textoResposta,
+          provedor: provedorUsado
+        });
+        console.log("Interação salva com sucesso no banco de dados.");
+      } catch (erroBanco) {
+        console.log("Erro ao salvar histórico no MongoDB:", erroBanco.message);
+      }
+    }
+
     console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
 
+    // Retorna a resposta em texto e também o áudio em formato base64 para o app reproduzir
     return res.json({ 
       resposta: textoResposta, 
       reply: textoResposta, 
-      text: textoResposta 
+      text: textoResposta,
+      audio: audioBase64
     });
 
   } catch (error) {
@@ -159,9 +211,39 @@ async function chamarGeminiComRetry(mensagemUsuario) {
   }
 }
 
+// Função para converter texto em áudio usando o Google Text-to-Speech
+async function gerarAudioGoogleTTS(texto) {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) return "";
+
+  const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${geminiKey}`;
+
+  const response = await fetch(ttsUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      input: { text: texto },
+      voice: {
+        languageCode: "pt-BR",
+        name: "pt-BR-Neural2-A", // Voz neural feminina de alta qualidade do Google
+        ssmlGender: "FEMALE"
+      },
+      audioConfig: {
+        audioEncoding: "MP3"
+      }
+    })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.audioContent) {
+    return data.audioContent; // Retorna o áudio em formato Base64 pronto para o app tocar
+  }
+  return "";
+}
+
 app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (Gemini + Groq Resiliente) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (Com Voz Neural Feminina, Banco e IA Dupla) rodando na porta ${PORT}`);
 });
