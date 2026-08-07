@@ -5,7 +5,6 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-// Contador para alternar entre as duas APIs ativamente
 let contadorRodizio = 0;
 
 async function processarChatUniversal(req, res) {
@@ -54,12 +53,12 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // Alterna o uso entre Groq e Gemini a cada nova mensagem enviada
+    // Alterna o uso entre Groq e Gemini a cada nova mensagem
     contadorRodizio++;
     const usarGroqPrimeiro = contadorRodizio % 2 !== 0;
 
     if (usarGroqPrimeiro) {
-      // TENTA GROQ
+      // 1. TENTA GROQ
       try {
         const groqKey = process.env.GROQ_API_KEY;
         if (groqKey) {
@@ -82,42 +81,57 @@ async function processarChatUniversal(req, res) {
           }
         }
       } catch (e) {
-        console.log("Groq falhou no rodízio, tentando Gemini...");
+        console.log("Groq falhou no rodízio:", e.message);
       }
 
-      // Se a Groq falhou, usa o Gemini
+      // Se a Groq falhou, tenta o Gemini
       if (!textoResposta) {
-        textoResposta = await chamarGemini(mensagemUsuario);
-        provedorUsado = "Gemini (Fallback do Rodízio)";
+        try {
+          textoResposta = await chamarGemini(mensagemUsuario);
+          provedorUsado = "Gemini (Fallback do Rodízio)";
+        } catch (errGemini) {
+          console.log("Gemini fallback também falhou:", errGemini.message);
+        }
       }
 
     } else {
-      // TENTA GEMINI PRIMEIRO NESTA VEZ
+      // 2. TENTA GEMINI PRIMEIRO
       try {
         textoResposta = await chamarGemini(mensagemUsuario);
         provedorUsado = "Gemini (Rodízio Ativo)";
       } catch (e) {
-        console.log("Gemini falhou no rodízio, tentando Groq...");
+        console.log("Gemini falhou no rodízio:", e.message);
       }
 
-      // Se o Gemini falhou, usa a Groq
+      // Se o Gemini falhou, tenta a Groq
       if (!textoResposta) {
-        const groqKey = process.env.GROQ_API_KEY;
-        const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${groqKey}`
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            messages: [{ role: "user", content: mensagemUsuario }]
-          })
-        });
-        const groqData = await groqResponse.json();
-        textoResposta = groqData.choices[0].message.content;
-        provedorUsado = "Groq (Fallback do Rodízio)";
+        try {
+          const groqKey = process.env.GROQ_API_KEY;
+          const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${groqKey}`
+            },
+            body: JSON.stringify({
+              model: "llama-3.3-70b-versatile",
+              messages: [{ role: "user", content: mensagemUsuario }]
+            })
+          });
+          const groqData = await groqResponse.json();
+          if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
+            textoResposta = groqData.choices[0].message.content;
+            provedorUsado = "Groq (Fallback do Rodízio)";
+          }
+        } catch (errGroq) {
+          console.log("Groq fallback também falhou:", errGroq.message);
+        }
       }
+    }
+
+    if (!textoResposta) {
+      textoResposta = "Erro: Ambas as APIs falharam nesta requisição.";
+      provedorUsado = "Nenhum";
     }
 
     console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
@@ -138,9 +152,13 @@ async function processarChatUniversal(req, res) {
   }
 }
 
-// Função auxiliar para chamar o Gemini
+// Função robusta para chamar o Gemini com logs detalhados de erro
 async function chamarGemini(mensagemUsuario) {
   const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    throw new Error("A chave GEMINI_API_KEY não está configurada nas variáveis do Render!");
+  }
+
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
 
   const geminiResponse = await fetch(geminiUrl, {
@@ -153,9 +171,10 @@ async function chamarGemini(mensagemUsuario) {
 
   const geminiData = await geminiResponse.json();
   if (geminiResponse.ok) {
-    return geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "Sem resposta da IA.";
+    return geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "Sem resposta do Gemini.";
   } else {
-    throw new Error(geminiData.error?.message || "Erro no Gemini");
+    const erroMsg = geminiData.error?.message || JSON.stringify(geminiData);
+    throw new Error(`Google API Error: ${erroMsg}`);
   }
 }
 
@@ -163,5 +182,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Dual-API Ativo rodando na porta ${PORT}`);
+  console.log(`Servidor Dual-API Ativo v2 rodando na porta ${PORT}`);
 });
