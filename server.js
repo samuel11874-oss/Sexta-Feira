@@ -2,7 +2,8 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-app.post('/chat', async (req, res) => {
+// Função centralizada para processar a IA (Dual: Groq + Gemini)
+async function processarChat(req, res) {
   try {
     const mensagemUsuario = req.body.mensagem || req.body.message || req.body.text;
     if (!mensagemUsuario) {
@@ -44,7 +45,7 @@ app.post('/chat', async (req, res) => {
       console.log("Aviso: Groq falhou, acionando redundância...", groqError.message);
     }
 
-    // 2. TENTATIVA 2 (FALLBACK): Se a Groq falhou, usa o Gemini automaticamente
+    // 2. TENTATIVA 2 (FALLBACK): Se a Groq falhou ou chave vazia, usa o Gemini
     if (!textoResposta) {
       console.log("Acionando o Gemini automaticamente como backup...");
       const geminiKey = process.env.GEMINI_API_KEY;
@@ -70,7 +71,6 @@ app.post('/chat', async (req, res) => {
 
     console.log(`Sucesso absoluto! Respondido via: ${provedorUsado}`);
 
-    // Retorna a resposta para o aplicativo
     res.json({ 
       resposta: textoResposta, 
       reply: textoResposta, 
@@ -85,9 +85,18 @@ app.post('/chat', async (req, res) => {
       text: `Erro em ambos os sistemas: ${error.message}` 
     });
   }
+}
+
+// Aceita requisições tanto na raiz quanto na rota /chat para evitar erros 404
+app.post('/', processarChat);
+app.post('/chat', processarChat);
+
+// Rota de teste rápida via navegador
+app.get('/', (req, res) => {
+  res.send('Servidor Dual-IA do Sexta-Feira está online e operando!');
 });
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Dual-IA do Sexta-Feira rodando na porta ${PORT}`);
+  console.log(`Servidor rodando na porta ${PORT}`);
 });
