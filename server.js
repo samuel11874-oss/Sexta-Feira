@@ -3,6 +3,17 @@ const { MongoClient } = require('mongodb');
 
 const app = express();
 
+// CORREÇÃO ESSENCIAL: Libera o CORS para o aplicativo do Spck Editor e navegadores
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
@@ -87,7 +98,7 @@ async function gerarAudioGoogleTTS(texto) {
       audioConfig: { 
         audioEncoding: "MP3",
         speakingRate: 1.0, // Ritmo perfeitamente natural
-        pitch: 0.0         // Tom limpo e corrigido (remove qualquer efeito "roco" ou grave)
+        pitch: 0.0         // Tom limpo e corrigido
       }
     })
   });
