@@ -67,6 +67,7 @@ async function chamarGeminiComRetry(mensagemUsuario) {
   }
 }
 
+// Função de áudio ajustada para tom limpo, natural e sem distorção (Neural)
 async function gerarAudioGoogleTTS(texto) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) return "";
@@ -80,10 +81,14 @@ async function gerarAudioGoogleTTS(texto) {
       input: { text: texto },
       voice: {
         languageCode: "pt-BR",
-        name: "pt-BR-Neural2-A", // Voz feminina neural do Google
+        name: "pt-BR-Neural2-A", // Voz Neural Feminina de alta qualidade
         ssmlGender: "FEMALE"
       },
-      audioConfig: { audioEncoding: "MP3" }
+      audioConfig: { 
+        audioEncoding: "MP3",
+        speakingRate: 1.0, // Ritmo perfeitamente natural
+        pitch: 0.0         // Tom limpo e corrigido (remove qualquer efeito "roco" ou grave)
+      }
     })
   });
 
@@ -177,7 +182,7 @@ async function processarChatUniversal(req, res) {
       provedorUsado = "Sistema (Emergência)";
     }
 
-    // 4. GERA O ÁUDIO FEMININO
+    // 4. GERA O ÁUDIO FEMININO NEURAL
     let audioBase64 = "";
     try {
       audioBase64 = await gerarAudioGoogleTTS(textoResposta);
@@ -224,5 +229,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (Online c/ Banco e Voz) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (Online c/ Banco e Voz Neural Ajustada) rodando na porta ${PORT}`);
 });
