@@ -1,7 +1,6 @@
 {
   "name": "sexta-feira",
   "version": "1.0.0",
-  "description": "Assistente Sexta-Feira",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
