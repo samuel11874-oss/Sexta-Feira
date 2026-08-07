@@ -2,8 +2,7 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-// Função centralizada para processar a IA (Dual: Groq + Gemini)
-async function processarChat(req, res) {
+app.post('/chat', async (req, res) => {
   try {
     const mensagemUsuario = req.body.mensagem || req.body.message || req.body.text;
     if (!mensagemUsuario) {
@@ -15,62 +14,35 @@ async function processarChat(req, res) {
     }
 
     console.log(`Mensagem recebida: ${mensagemUsuario}`);
-    let textoResposta = "";
-    let provedorUsado = "";
 
-    // 1. TENTATIVA 1: Usar a Groq (Prioridade pela velocidade)
-    try {
-      const groqKey = process.env.GROQ_API_KEY;
-      if (groqKey) {
-        console.log("Tentando processar com a Groq...");
-        const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${groqKey}`
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            messages: [{ role: "user", content: mensagemUsuario }]
-          })
-        });
+    const apiKey = process.env.GEMINI_API_KEY;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-        const groqData = await groqResponse.json();
-        if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
-          textoResposta = groqData.choices[0].message.content;
-          provedorUsado = "Groq";
-        }
-      }
-    } catch (groqError) {
-      console.log("Aviso: Groq falhou, acionando redundância...", groqError.message);
-    }
+    const apiResponse = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: mensagemUsuario }] }]
+      })
+    });
 
-    // 2. TENTATIVA 2 (FALLBACK): Se a Groq falhou ou chave vazia, usa o Gemini
-    if (!textoResposta) {
-      console.log("Acionando o Gemini automaticamente como backup...");
-      const geminiKey = process.env.GEMINI_API_KEY;
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+    const data = await apiResponse.json();
 
-      const geminiResponse = await fetch(geminiUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: mensagemUsuario }] }]
-        })
+    if (!apiResponse.ok) {
+      const erroMsg = data.error?.message || "Erro na API do Google";
+      console.error("Erro do Google:", erroMsg);
+      // Retorna em todas as chaves possíveis para o app ler e exibir na tela
+      return res.json({ 
+        resposta: `Erro Google: ${erroMsg}`, 
+        reply: `Erro Google: ${erroMsg}`, 
+        text: `Erro Google: ${erroMsg}` 
       });
-
-      const geminiData = await geminiResponse.json();
-      if (geminiResponse.ok) {
-        textoResposta = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-        provedorUsado = "Gemini";
-      } else {
-        const erroGemini = geminiData.error?.message || "Erro desconhecido no Gemini";
-        throw new Error(erroGemini);
-      }
     }
 
-    console.log(`Sucesso absoluto! Respondido via: ${provedorUsado}`);
+    const textoResposta = data.candidates?.[0]?.content?.parts?.[0]?.text || "Sem resposta da IA.";
+    console.log(`Resposta gerada: ${textoResposta}`);
 
+    // Retorna a resposta em múltiplos formatos para garantir compatibilidade total com o app
     res.json({ 
       resposta: textoResposta, 
       reply: textoResposta, 
@@ -78,22 +50,13 @@ async function processarChat(req, res) {
     });
 
   } catch (error) {
-    console.error("Erro crítico no sistema dual:", error);
+    console.error("Erro interno:", error);
     res.json({ 
-      resposta: `Erro em ambos os sistemas: ${error.message}`, 
-      reply: `Erro em ambos os sistemas: ${error.message}`, 
-      text: `Erro em ambos os sistemas: ${error.message}` 
+      resposta: `Erro interno: ${error.message}`, 
+      reply: `Erro interno: ${error.message}`, 
+      text: `Erro interno: ${error.message}` 
     });
   }
-}
-
-// Aceita requisições tanto na raiz quanto na rota /chat para evitar erros 404
-app.post('/', processarChat);
-app.post('/chat', processarChat);
-
-// Rota de teste rápida via navegador
-app.get('/', (req, res) => {
-  res.send('Servidor Dual-IA do Sexta-Feira está online e operando!');
 });
 
 const PORT = process.env.PORT || 10000;
