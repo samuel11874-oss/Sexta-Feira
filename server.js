@@ -52,15 +52,53 @@ async function processarChatUniversal(req, res) {
     console.log(`Mensagem extraída: "${mensagemUsuario}"`);
 
     let textoResposta = "";
+    let provedorUsado = "";
 
-    // Executa a chamada com o Gemini 3.5 utilizando o sistema de Retry automático
+    // 1. TENTA GEMINI 3.5 PRIMEIRO (Com sistema de Retry automático)
     try {
       textoResposta = await chamarGeminiComRetry(mensagemUsuario);
-      console.log("Sucesso absoluto gerado via: Gemini 3.5 Flash");
-    } catch (err) {
-      console.log("Erro final tratado no Gemini:", err.message);
-      textoResposta = "Oi Samuel! Sou a Sexta-Feira. Os servidores estão com alta demanda momentânea. Por favor, envie a mensagem novamente em instantes!";
+      provedorUsado = "Gemini 3.5 Flash (Principal)";
+    } catch (errGemini) {
+      console.log("Gemini ocupado, acionando Groq como fallback...", errGemini.message);
     }
+
+    // 2. SE O GEMINI FALHAR, O GROQ ASSUME AUTOMATICAMENTE
+    if (!textoResposta) {
+      try {
+        const groqKey = process.env.GROQ_API_KEY;
+        if (groqKey) {
+          const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${groqKey}`
+            },
+            body: JSON.stringify({
+              model: "llama-3.3-70b-versatile",
+              messages: [
+                { role: "system", content: SISTEMA_IDENTIDADE },
+                { role: "user", content: mensagemUsuario }
+              ]
+            })
+          });
+          const groqData = await groqResponse.json();
+          if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
+            textoResposta = groqData.choices[0].message.content;
+            provedorUsado = "Groq (Fallback Ativo)";
+          }
+        }
+      } catch (errGroq) {
+        console.log("Groq fallback também falhou:", errGroq.message);
+      }
+    }
+
+    // 3. EMERGÊNCIA ABSOLUTA (Caso ambos estejam fora)
+    if (!textoResposta) {
+      textoResposta = "Olá Samuel! Sou a Sexta-Feira. Tivemos uma instabilidade momentânea nas redes neurais, mas já estou pronta para ajudar novamente.";
+      provedorUsado = "Sistema (Emergência)";
+    }
+
+    console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
 
     return res.json({ 
       resposta: textoResposta, 
@@ -78,7 +116,7 @@ async function processarChatUniversal(req, res) {
   }
 }
 
-// Função base para requisitar o Gemini 3.5 Flash
+// Função base do Gemini 3.5 Flash
 async function chamarGemini(mensagemUsuario) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
@@ -107,15 +145,14 @@ async function chamarGemini(mensagemUsuario) {
   }
 }
 
-// Sistema de Nova Tentativa Automática (Retry) para zerar erros de picos de tráfego
+// Retry automático para o Gemini antes de passar para o Groq
 async function chamarGeminiComRetry(mensagemUsuario) {
   try {
     return await chamarGemini(mensagemUsuario);
   } catch (error) {
-    // Se o erro for de alta demanda temporária, aguarda 1.5 segundos e tenta mais uma vez automaticamente
     if (error.message.includes("high demand")) {
-      console.log("Pico de alta demanda detectado. Tentando novamente em 1.5 segundos...");
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      console.log("Pico de alta demanda no Gemini. Tentando novamente em 1 segundo...");
+      await new Promise(resolve => setTimeout(resolve, 1000));
       return await chamarGemini(mensagemUsuario);
     }
     throw error;
@@ -126,5 +163,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (Zero Erros - 100% Gemini 3.5 com Retry) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (Gemini + Groq Resiliente) rodando na porta ${PORT}`);
 });
