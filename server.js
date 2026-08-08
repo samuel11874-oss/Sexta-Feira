@@ -1,6 +1,6 @@
 const express = require('express');
 const { MongoClient } = require('mongodb');
-const edgeTTS = require('edge-tts-node');
+const { tts: edgeTTS } = require('edge-tts-node');
 
 const app = express();
 
@@ -68,10 +68,10 @@ async function chamarGeminiComRetry(mensagemUsuario) {
   }
 }
 
-// Função de áudio corrigida usando edge-tts-node
+// Função de áudio corrigida com o edge-tts-node
 async function gerarAudioEdgeTTS(texto) {
   try {
-    const audioBuffer = await edgeTTS.default({
+    const audioBuffer = await edgeTTS({
       text: texto,
       voice: "pt-BR-FranciscaNeural",
       lang: "pt-BR"
