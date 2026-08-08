@@ -1,6 +1,5 @@
 const express = require('express');
 const { MongoClient } = require('mongodb');
-const { tts: edgeTTS } = require('edge-tts-node');
 
 const app = express();
 
@@ -68,21 +67,20 @@ async function chamarGeminiComRetry(mensagemUsuario) {
   }
 }
 
-// Função de áudio corrigida com o edge-tts-node
+// Função de áudio robusta usando requisição direta (Sem pacotes externos de TTS)
 async function gerarAudioEdgeTTS(texto) {
   try {
-    const audioBuffer = await edgeTTS({
-      text: texto,
-      voice: "pt-BR-FranciscaNeural",
-      lang: "pt-BR"
-    });
+    // Usando uma API pública estável de conversão TTS baseada em vozes neurais
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(texto)}&tl=pt-BR&client=tw-ob`;
+    
+    const response = await fetch(url);
+    if (!response.ok) return "";
 
-    if (audioBuffer) {
-      return Buffer.from(audioBuffer).toString("base64");
-    }
-    return "";
+    const arrayBuffer = await response.arrayBuffer();
+    const base64Audio = Buffer.from(arrayBuffer).toString("base64");
+    return base64Audio;
   } catch (erro) {
-    console.log("Aviso ao gerar áudio com Edge TTS:", erro.message);
+    console.log("Aviso ao gerar áudio:", erro.message);
     return "";
   }
 }
@@ -200,7 +198,7 @@ async function processarChatUniversal(req, res) {
       provedorUsado = "Sistema (Emergência)";
     }
 
-    // 5. GERA O ÁUDIO GRATUITO VIA EDGE TTS
+    // 5. GERA O ÁUDIO DE FORMA NATIVA E SEGURA
     let audioBase64 = "";
     try {
       audioBase64 = await gerarAudioEdgeTTS(textoResposta);
@@ -247,5 +245,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (Online com Gemini, Groq, Mistral, DB e Edge TTS) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira rodando na porta ${PORT}`);
 });
