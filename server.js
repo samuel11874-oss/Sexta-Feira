@@ -1,5 +1,6 @@
 const express = require('express');
 const { MongoClient } = require('mongodb');
+const { EdgeTTS } = require('edge-tts');
 
 const app = express();
 
@@ -31,7 +32,7 @@ async function conectarBanco() {
 
 conectarBanco();
 
-// Funções de Comunicação com as IAs e Voz
+// Funções de Comunicação com as IAs
 
 async function chamarGemini(mensagemUsuario) {
   const geminiKey = process.env.GEMINI_API_KEY;
@@ -60,45 +61,33 @@ async function chamarGeminiComRetry(mensagemUsuario) {
   try {
     return await chamarGemini(mensagemUsuario);
   } catch (error) {
-    if (error.message.includes("high demand") || error.message.includes("429")) {
-      console.log("Pico de demanda no Gemini. Tentando novamente em 1 segundo...");
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return await chamarGemini(mensagemUsuario);
+    if (error.message.includes("high demand") || error.message.includes("429") || error.message.includes("Quota exceeded")) {
+      console.log("Pico de demanda ou cota atingida no Gemini. Acionando fallbacks...");
     }
     throw error;
   }
 }
 
-// Função de áudio ajustada para tom limpo, natural e sem distorção (Neural)
-async function gerarAudioGoogleTTS(texto) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) return "";
+// Função de áudio gratuita de alta qualidade com Edge TTS (Microsoft Neural)
+async function gerarAudioEdgeTTS(texto) {
+  try {
+    // Voz neural feminina natural em português do Brasil
+    const voice = "pt-BR-FranciscaNeural"; 
+    const tts = new EdgeTTS();
+    
+    await tts.synthesize(texto, voice, {
+      rate: "+0%", 
+      pitch: "+0Hz" 
+    });
 
-  const ttsUrl = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${geminiKey}`;
-
-  const response = await fetch(ttsUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      input: { text: texto },
-      voice: {
-        languageCode: "pt-BR",
-        name: "pt-BR-Neural2-A",
-        ssmlGender: "FEMALE"
-      },
-      audioConfig: { 
-        audioEncoding: "MP3",
-        speakingRate: 1.0,
-        pitch: 0.0 
-      }
-    })
-  });
-
-  const data = await response.json();
-  if (response.ok && data.audioContent) {
-    return data.audioContent;
+    const buffer = await tts.toArrayBuffer();
+    const base64Audio = Buffer.from(buffer).toString("base64");
+    
+    return base64Audio;
+  } catch (erro) {
+    console.log("Aviso: Não foi possível gerar o áudio via Edge TTS:", erro.message);
+    return "";
   }
-  return "";
 }
 
 // Função Principal de Processamento do App
@@ -145,7 +134,7 @@ async function processarChatUniversal(req, res) {
       textoResposta = await chamarGeminiComRetry(mensagemUsuario);
       provedorUsado = "Gemini 3.5 Flash";
     } catch (errGemini) {
-      console.log("Gemini ocupado, acionando Groq...", errGemini.message);
+      console.log("Gemini indisponível, acionando Groq...", errGemini.message);
     }
 
     // 2. GROQ FALLBACK (Se o Gemini falhar)
@@ -214,12 +203,12 @@ async function processarChatUniversal(req, res) {
       provedorUsado = "Sistema (Emergência)";
     }
 
-    // 5. GERA O ÁUDIO FEMININO NEURAL
+    // 5. GERA O ÁUDIO GRATUITO VIA EDGE TTS
     let audioBase64 = "";
     try {
-      audioBase64 = await gerarAudioGoogleTTS(textoResposta);
+      audioBase64 = await gerarAudioEdgeTTS(textoResposta);
     } catch (erroAudio) {
-      console.log("Aviso: Não foi possível gerar o áudio neural:", erroAudio.message);
+      console.log("Aviso ao processar áudio:", erroAudio.message);
     }
 
     // 6. SALVA NO BANCO DE DADOS
@@ -261,5 +250,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (Online com Gemini, Groq, Mistral e Voz Neural) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (Online com Gemini, Groq, Mistral, DB e Edge TTS) rodando na porta ${PORT}`);
 });
