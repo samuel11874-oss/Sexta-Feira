@@ -31,20 +31,46 @@ async function conectarBanco() {
 
 conectarBanco();
 
-// Funções de Comunicação com as IAs
+// Função para buscar histórico recente do MongoDB
+async function buscarHistoricoRecente() {
+  if (!dbColecao) return [];
+  try {
+    // Busca as últimas 5 mensagens salvas, ordenadas da mais antiga para a mais recente
+    const historico = await dbColecao.find({})
+      .sort({ _id: -1 })
+      .limit(5)
+      .toArray();
+    
+    return historico.reverse();
+  } catch (erro) {
+    console.log("Aviso ao buscar histórico:", erro.message);
+    return [];
+  }
+}
 
-async function chamarGemini(mensagemUsuario) {
+// Funções de Comunicação com as IAs (com suporte a histórico)
+
+async function chamarGeminiComHistorico(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("A chave GEMINI_API_KEY não está configurada!");
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
+
+  // Monta o array de conteúdos incluindo o histórico anterior para dar contexto
+  const contents = [];
+  historicoAnterior.forEach(h => {
+    if (h.usuario) contents.push({ role: "user", parts: [{ text: h.usuario }] });
+    if (h.resposta) contents.push({ role: "model", parts: [{ text: h.resposta }] });
+  });
+  // Adiciona a mensagem atual
+  contents.push({ role: "user", parts: [{ text: mensagemUsuario }] });
 
   const response = await fetch(geminiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SISTEMA_IDENTIDADE }] },
-      contents: [{ parts: [{ text: mensagemUsuario }] }]
+      contents: contents
     })
   });
 
@@ -56,31 +82,48 @@ async function chamarGemini(mensagemUsuario) {
   }
 }
 
-async function chamarGeminiComRetry(mensagemUsuario) {
-  try {
-    return await chamarGemini(mensagemUsuario);
-  } catch (error) {
-    if (error.message.includes("high demand") || error.message.includes("429") || error.message.includes("Quota exceeded")) {
-      console.log("Pico de demanda ou cota atingida no Gemini. Acionando fallbacks...");
-    }
-    throw error;
+async function chamarGroqComHistorico(mensagemUsuario, historicoAnterior) {
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey) throw new Error("Chave Groq não configurada");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${groqKey}`
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: messages
+    })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error("Erro no Groq");
   }
 }
 
-// Função de áudio robusta usando requisição direta (Sem pacotes externos de TTS)
+// Função de áudio robusta
 async function gerarAudioEdgeTTS(texto) {
   try {
-    // Usando uma API pública estável de conversão TTS baseada em vozes neurais
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(texto)}&tl=pt-BR&client=tw-ob`;
-    
     const response = await fetch(url);
     if (!response.ok) return "";
-
     const arrayBuffer = await response.arrayBuffer();
-    const base64Audio = Buffer.from(arrayBuffer).toString("base64");
-    return base64Audio;
+    return Buffer.from(arrayBuffer).toString("base64");
   } catch (erro) {
-    console.log("Aviso ao gerar áudio:", erro.message);
     return "";
   }
 }
@@ -114,91 +157,43 @@ async function processarChatUniversal(req, res) {
     }
 
     if (!mensagemUsuario || typeof mensagemUsuario !== 'string' || mensagemUsuario.trim() === "") {
-      console.log("ALERTA: Nenhuma mensagem identificada.");
       mensagemUsuario = "Oi, Sexta-Feira, está me ouvindo?"; 
     }
 
     mensagemUsuario = mensagemUsuario.trim();
     console.log(`Mensagem extraída: "${mensagemUsuario}"`);
 
+    // Busca o histórico recente no MongoDB antes de chamar a IA
+    const historicoRecente = await buscarHistoricoRecente();
+
     let textoResposta = "";
     let provedorUsado = "";
 
-    // 1. TENTA GEMINI PRIMEIRO
+    // 1. TENTA GEMINI COM HISTÓRICO
     try {
-      textoResposta = await chamarGeminiComRetry(mensagemUsuario);
+      textoResposta = await chamarGeminiComHistorico(mensagemUsuario, historicoRecente);
       provedorUsado = "Gemini 3.5 Flash";
     } catch (errGemini) {
-      console.log("Gemini indisponível, acionando Groq...", errGemini.message);
+      console.log("Gemini indisponível, acionando Groq com histórico...", errGemini.message);
     }
 
-    // 2. GROQ FALLBACK (Se o Gemini falhar)
+    // 2. GROQ FALLBACK COM HISTÓRICO
     if (!textoResposta) {
       try {
-        const groqKey = process.env.GROQ_API_KEY;
-        if (groqKey) {
-          const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${groqKey}`
-            },
-            body: JSON.stringify({
-              model: "llama-3.3-70b-versatile",
-              messages: [
-                { role: "system", content: SISTEMA_IDENTIDADE },
-                { role: "user", content: mensagemUsuario }
-              ]
-            })
-          });
-          const groqData = await groqResponse.json();
-          if (groqResponse.ok && groqData.choices?.[0]?.message?.content) {
-            textoResposta = groqData.choices[0].message.content;
-            provedorUsado = "Groq (Fallback)";
-          }
-        }
+        textoResposta = await chamarGroqComHistorico(mensagemUsuario, historicoRecente);
+        provedorUsado = "Groq (Fallback)";
       } catch (errGroq) {
         console.log("Groq fallback falhou:", errGroq.message);
       }
     }
 
-    // 3. MISTRAL FALLBACK (Se o Gemini e o Groq falharem)
-    if (!textoResposta) {
-      try {
-        const mistralKey = process.env.MISTRAL_API_KEY;
-        if (mistralKey) {
-          const mistralResponse = await fetch("https://api.mistral.ai/v1/chat/completions", {
-            method: "POST",
-            headers: { 
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${mistralKey}`
-            },
-            body: JSON.stringify({
-              model: "mistral-small-latest",
-              messages: [
-                { role: "system", content: SISTEMA_IDENTIDADE },
-                { role: "user", content: mensagemUsuario }
-              ]
-            })
-          });
-          const mistralData = await mistralResponse.json();
-          if (mistralResponse.ok && mistralData.choices?.[0]?.message?.content) {
-            textoResposta = mistralData.choices[0].message.content;
-            provedorUsado = "Mistral (Fallback)";
-          }
-        }
-      } catch (errMistral) {
-        console.log("Mistral fallback falhou:", errMistral.message);
-      }
-    }
-
-    // 4. EMERGÊNCIA ABSOLUTA (Se todas as IAs falharem)
+    // 3. EMERGÊNCIA ABSOLUTA
     if (!textoResposta) {
       textoResposta = "Olá Samuel! Tivemos uma instabilidade momentânea na conexão, mas já estou voltando ao normal.";
       provedorUsado = "Sistema (Emergência)";
     }
 
-    // 5. GERA O ÁUDIO DE FORMA NATIVA E SEGURA
+    // 4. GERA O ÁUDIO
     let audioBase64 = "";
     try {
       audioBase64 = await gerarAudioEdgeTTS(textoResposta);
@@ -206,7 +201,7 @@ async function processarChatUniversal(req, res) {
       console.log("Aviso ao processar áudio:", erroAudio.message);
     }
 
-    // 6. SALVA NO BANCO DE DADOS
+    // 5. SALVA NO BANCO DE DADOS
     if (dbColecao) {
       try {
         await dbColecao.insertOne({
