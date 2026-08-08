@@ -1,6 +1,6 @@
 const express = require('express');
 const { MongoClient } = require('mongodb');
-const { EdgeTTS } = require('edge-tts');
+const { EdgeTTS } = require('edge-tts-node');
 
 const app = express();
 
@@ -68,24 +68,19 @@ async function chamarGeminiComRetry(mensagemUsuario) {
   }
 }
 
-// Função de áudio gratuita de alta qualidade com Edge TTS (Microsoft Neural)
+// Função de áudio gratuita com Edge TTS (Microsoft Neural)
 async function gerarAudioEdgeTTS(texto) {
   try {
-    // Voz neural feminina natural em português do Brasil
-    const voice = "pt-BR-FranciscaNeural"; 
-    const tts = new EdgeTTS();
-    
-    await tts.synthesize(texto, voice, {
-      rate: "+0%", 
-      pitch: "+0Hz" 
+    const tts = new EdgeTTS({
+      voice: "pt-BR-FranciscaNeural",
+      lang: "pt-BR",
+      outputFormat: "audio-24khz-48kbitrate-mono-mp3"
     });
 
-    const buffer = await tts.toArrayBuffer();
-    const base64Audio = Buffer.from(buffer).toString("base64");
-    
-    return base64Audio;
+    const base64Audio = await tts.toBase64(texto);
+    return base64Audio || "";
   } catch (erro) {
-    console.log("Aviso: Não foi possível gerar o áudio via Edge TTS:", erro.message);
+    console.log("Aviso ao gerar áudio com Edge TTS:", erro.message);
     return "";
   }
 }
