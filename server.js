@@ -28,9 +28,11 @@ async function conectarBanco() {
     console.error("Erro ao conectar no MongoDB:", erro.message);
   }
 }
+
 conectarBanco();
 
 // Funções de Comunicação com as IAs e Voz
+
 async function chamarGemini(mensagemUsuario) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("A chave GEMINI_API_KEY não está configurada!");
@@ -81,13 +83,13 @@ async function gerarAudioGoogleTTS(texto) {
       input: { text: texto },
       voice: {
         languageCode: "pt-BR",
-        name: "pt-BR-Neural2-A", // Voz Neural Feminina de alta qualidade
+        name: "pt-BR-Neural2-A",
         ssmlGender: "FEMALE"
       },
       audioConfig: { 
         audioEncoding: "MP3",
-        speakingRate: 1.0, // Ritmo perfeitamente natural
-        pitch: 0.0         // Tom limpo e corrigido (remove qualquer efeito "roco" ou grave)
+        speakingRate: 1.0,
+        pitch: 0.0 
       }
     })
   });
@@ -176,13 +178,43 @@ async function processarChatUniversal(req, res) {
       }
     }
 
-    // 3. EMERGÊNCIA ABSOLUTA
+    // 3. MISTRAL FALLBACK (Se o Gemini e o Groq falharem)
+    if (!textoResposta) {
+      try {
+        const mistralKey = process.env.MISTRAL_API_KEY;
+        if (mistralKey) {
+          const mistralResponse = await fetch("https://api.mistral.ai/v1/chat/completions", {
+            method: "POST",
+            headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${mistralKey}`
+            },
+            body: JSON.stringify({
+              model: "mistral-small-latest",
+              messages: [
+                { role: "system", content: SISTEMA_IDENTIDADE },
+                { role: "user", content: mensagemUsuario }
+              ]
+            })
+          });
+          const mistralData = await mistralResponse.json();
+          if (mistralResponse.ok && mistralData.choices?.[0]?.message?.content) {
+            textoResposta = mistralData.choices[0].message.content;
+            provedorUsado = "Mistral (Fallback)";
+          }
+        }
+      } catch (errMistral) {
+        console.log("Mistral fallback falhou:", errMistral.message);
+      }
+    }
+
+    // 4. EMERGÊNCIA ABSOLUTA (Se todas as IAs falharem)
     if (!textoResposta) {
       textoResposta = "Olá Samuel! Tivemos uma instabilidade momentânea na conexão, mas já estou voltando ao normal.";
       provedorUsado = "Sistema (Emergência)";
     }
 
-    // 4. GERA O ÁUDIO FEMININO NEURAL
+    // 5. GERA O ÁUDIO FEMININO NEURAL
     let audioBase64 = "";
     try {
       audioBase64 = await gerarAudioGoogleTTS(textoResposta);
@@ -190,7 +222,7 @@ async function processarChatUniversal(req, res) {
       console.log("Aviso: Não foi possível gerar o áudio neural:", erroAudio.message);
     }
 
-    // 5. SALVA NO BANCO DE DADOS
+    // 6. SALVA NO BANCO DE DADOS
     if (dbColecao) {
       try {
         await dbColecao.insertOne({
@@ -229,5 +261,5 @@ app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira (Online c/ Banco e Voz Neural Ajustada) rodando na porta ${PORT}`);
+  console.log(`Servidor Sexta-Feira (Online com Gemini, Groq, Mistral e Voz Neural) rodando na porta ${PORT}`);
 });
