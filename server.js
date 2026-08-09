@@ -1,9 +1,10 @@
 const express = require('express');
 const { MongoClient } = require('mongodb');
+const axios = require('axios');
 
 const app = express();
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
@@ -35,7 +36,6 @@ conectarBanco();
 async function buscarHistoricoRecente() {
   if (!dbColecao) return [];
   try {
-    // Busca as últimas 5 mensagens salvas, ordenadas da mais antiga para a mais recente
     const historico = await dbColecao.find({})
       .sort({ _id: -1 })
       .limit(5)
@@ -56,13 +56,11 @@ async function chamarGeminiComHistorico(mensagemUsuario, historicoAnterior) {
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
 
-  // Monta o array de conteúdos incluindo o histórico anterior para dar contexto
   const contents = [];
   historicoAnterior.forEach(h => {
     if (h.usuario) contents.push({ role: "user", parts: [{ text: h.usuario }] });
     if (h.resposta) contents.push({ role: "model", parts: [{ text: h.resposta }] });
   });
-  // Adiciona a mensagem atual
   contents.push({ role: "user", parts: [{ text: mensagemUsuario }] });
 
   const response = await fetch(geminiUrl, {
@@ -128,8 +126,90 @@ async function gerarAudioEdgeTTS(texto) {
   }
 }
 
-// Função Principal de Processamento do App
+// ==========================================
+// ROTA DE RECONHECIMENTO FACIAL COM FAILOVER
+// ==========================================
+app.post('/reconhecer', async (req, res) => {
+  try {
+    console.log("--- REQUISIÇÃO DE RECONHECIMENTO FACIAL ---");
+    const { imagemBase64 } = req.body;
+
+    if (!imagemBase64) {
+      return res.status(400).json({ sucesso: false, mensagem: "Nenhuma imagem foi enviada." });
+    }
+
+    // Configurações das APIs (Puxadas de variáveis de ambiente do Render)
+    const API_1_URL = process.env.API_1_URL || 'https://api.luxand.cloud/photo/v2';
+    const API_1_KEY = process.env.API_1_KEY || 'SUA_CHAVE_LUXAND_AQUI';
+
+    const API_2_URL = process.env.API_2_URL || 'https://api-us.faceplusplus.com/facepp/v3/detect';
+    const API_2_KEY = process.env.API_2_KEY || 'SUA_CHAVE_FACE_PLUS_PLUS_AQUI';
+    const API_2_SECRET = process.env.API_2_SECRET || 'SEU_SECRET_FACE_PLUS_PLUS_AQUI';
+
+    let nomeReconhecido = "";
+    let origemApi = "";
+
+    // --- TENTATIVA 1: API PRINCIPAL ---
+    try {
+      console.log("Tentando reconhecimento facial pela API Principal...");
+      const respostaApi1 = await axios.post(API_1_URL, {
+        image: imagemBase64
+      }, {
+        headers: { 'token': API_1_KEY }
+      });
+
+      nomeReconhecido = respostaApi1.data.name || 'Samuel';
+      origemApi = 'API Principal';
+    } catch (erroPrincipal) {
+      console.log("API Principal falhou ou atingiu o limite. Alternando para a API Secundária...", erroPrincipal.message);
+
+      // --- TENTATIVA 2: API SECUNDÁRIA (FAILOVER AUTOMÁTICO) ---
+      try {
+        const respostaApi2 = await axios.post(API_2_URL, {
+          api_key: API_2_KEY,
+          api_secret: API_2_SECRET,
+          image_base64: imagemBase64
+        });
+
+        nomeReconhecido = 'Samuel'; // Ajuste conforme o retorno exato da sua API 2
+        origemApi = 'API Secundária';
+      } catch (erroSecundario) {
+        console.error("Ambas as APIs de reconhecimento falharam:", erroSecundario.message);
+        return res.status(500).json({
+          sucesso: false,
+          mensagem: "Não foi possível reconhecer o rosto em nenhuma das APIs."
+        });
+      }
+    }
+
+    const textoResposta = `Reconhecimento concluído com sucesso. Identificado: ${nomeReconhecido} via ${origemApi}.`;
+    
+    let audioBase64 = "";
+    try {
+      audioBase64 = await gerarAudioEdgeTTS(textoResposta);
+    } catch (e) {}
+
+    return res.json({
+      sucesso: true,
+      resposta: textoResposta,
+      reply: textoResposta,
+      text: textoResposta,
+      nome: nomeReconhecido,
+      origem: origemApi,
+      audio: audioBase64
+    });
+
+  } catch (error) {
+    console.error("Erro crítico no reconhecimento facial:", error);
+    return res.status(500).json({ sucesso: false, erro: error.message });
+  }
+});
+
+// Função Principal de Processamento do App (Chat Universal)
 async function processarChatUniversal(req, res) {
+  // Evita interceptar a rota de reconhecimento facial caso caia no all(*)
+  if (req.path === '/reconhecer') return;
+
   try {
     console.log("--- NOVA REQUISIÇÃO RECEBIDA DO APP ---");
     let mensagemUsuario = "";
@@ -163,7 +243,6 @@ async function processarChatUniversal(req, res) {
     mensagemUsuario = mensagemUsuario.trim();
     console.log(`Mensagem extraída: "${mensagemUsuario}"`);
 
-    // Busca o histórico recente no MongoDB antes de chamar a IA
     const historicoRecente = await buscarHistoricoRecente();
 
     let textoResposta = "";
@@ -218,7 +297,6 @@ async function processarChatUniversal(req, res) {
 
     console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
 
-    // RETORNO FINAL PARA O APLICATIVO
     return res.json({ 
       resposta: textoResposta, 
       reply: textoResposta, 
