@@ -49,41 +49,10 @@ async function buscarHistoricoRecente() {
 }
 
 // ==========================================
-// FUNÇÕES DE COMUNICAÇÃO COM AS 4 IAs GRATUITAS
+// FUNÇÕES DE COMUNICAÇÃO COM AS IAs
 // ==========================================
 
-// 1. GEMINI (Google AI Studio) - Mantido no 3.5
-async function chamarGeminiComHistorico(mensagemUsuario, historicoAnterior) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) throw new Error("A chave GEMINI_API_KEY não está configurada!");
-
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
-
-  const contents = [];
-  historicoAnterior.forEach(h => {
-    if (h.usuario) contents.push({ role: "user", parts: [{ text: h.usuario }] });
-    if (h.resposta) contents.push({ role: "model", parts: [{ text: h.resposta }] });
-  });
-  contents.push({ role: "user", parts: [{ text: mensagemUsuario }] });
-
-  const response = await fetch(geminiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: SISTEMA_IDENTIDADE }] },
-      contents: contents
-    })
-  });
-
-  const data = await response.json();
-  if (response.ok) {
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  } else {
-    throw new Error(data.error?.message || "Erro no Gemini");
-  }
-}
-
-// 2. OPENROUTER (Agregador Universal Gratuito) - Atualizado para Llama Gratuito
+// 1. OPENROUTER - (Llama Gratuito com Rastreamento de Erro - AGORA É O PRINCIPAL)
 async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) {
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (!openRouterKey) throw new Error("Chave OpenRouter não configurada");
@@ -102,11 +71,11 @@ async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) 
     headers: { 
       "Content-Type": "application/json",
       "Authorization": `Bearer ${openRouterKey}`,
-      "HTTP-Referer": "https://render.com", 
+      "HTTP-Referer": "https://sexta-feira-jafd.onrender.com", 
       "X-Title": "SextaFeiraApp"
     },
     body: JSON.stringify({
-      model: "meta-llama/llama-3.1-8b-instruct:free", // Modelo com rota 100% gratuita no OpenRouter!
+      model: "meta-llama/llama-3.1-8b-instruct:free",
       messages: messages
     })
   });
@@ -115,11 +84,13 @@ async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) 
   if (response.ok && data.choices?.[0]?.message?.content) {
     return data.choices[0].message.content;
   } else {
-    throw new Error("Erro no OpenRouter");
+    // Código de rastreio de erro de alta precisão
+    console.error("⛔ ERRO DETALHADO DO OPENROUTER:", JSON.stringify(data));
+    throw new Error(data.error?.message || "Erro no OpenRouter");
   }
 }
 
-// 3. GROQ (Llama 3.3 Ultra-rápido)
+// 2. GROQ (Llama 3.3)
 async function chamarGroqComHistorico(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave Groq não configurada");
@@ -153,7 +124,7 @@ async function chamarGroqComHistorico(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 4. MISTRAL AI (Camada de Contingência)
+// 3. MISTRAL AI
 async function chamarMistralComHistorico(mensagemUsuario, historicoAnterior) {
   const mistralKey = process.env.MISTRAL_API_KEY;
   if (!mistralKey) throw new Error("Chave Mistral não configurada");
@@ -276,7 +247,7 @@ app.post('/reconhecer', async (req, res) => {
   }
 });
 
-// Função Principal de Processamento do App (Chat Universal com as 4 IAs em Cadeia Inteligente)
+// Função Principal de Processamento do App
 async function processarChatUniversal(req, res) {
   if (req.path === '/reconhecer') return;
 
@@ -318,35 +289,27 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // 1. TENTATIVA 1: GEMINI
+    // A CHAMADA DO GEMINI FOI REMOVIDA DAQUI (Desativado)
+
+    // 1. TENTATIVA 1: OPENROUTER (Agora é o principal)
     try {
-      textoResposta = await chamarGeminiComHistorico(mensagemUsuario, historicoRecente);
-      provedorUsado = "Gemini 3.5 Flash";
-    } catch (errGemini) {
-      console.log("Gemini indisponível, acionando OpenRouter...", errGemini.message);
+      textoResposta = await chamarOpenRouterComHistorico(mensagemUsuario, historicoRecente);
+      provedorUsado = "OpenRouter";
+    } catch (errOpenRouter) {
+      console.log("OpenRouter falhou, acionando Groq...", errOpenRouter.message);
     }
 
-    // 2. TENTATIVA 2: OPENROUTER
-    if (!textoResposta) {
-      try {
-        textoResposta = await chamarOpenRouterComHistorico(mensagemUsuario, historicoRecente);
-        provedorUsado = "OpenRouter";
-      } catch (errOpenRouter) {
-        console.log("OpenRouter indisponível, acionando Groq...", errOpenRouter.message);
-      }
-    }
-
-    // 3. TENTATIVA 3: GROQ
+    // 2. TENTATIVA 2: GROQ
     if (!textoResposta) {
       try {
         textoResposta = await chamarGroqComHistorico(mensagemUsuario, historicoRecente);
         provedorUsado = "Groq";
       } catch (errGroq) {
-        console.log("Groq indisponível, acionando Mistral...", errGroq.message);
+        console.log("Groq falhou, acionando Mistral...", errGroq.message);
       }
     }
 
-    // 4. TENTATIVA 4: MISTRAL
+    // 3. TENTATIVA 3: MISTRAL
     if (!textoResposta) {
       try {
         textoResposta = await chamarMistralComHistorico(mensagemUsuario, historicoRecente);
@@ -356,7 +319,7 @@ async function processarChatUniversal(req, res) {
       }
     }
 
-    // 5. EMERGÊNCIA ABSOLUTA CASO TODAS FALHEM
+    // 4. EMERGÊNCIA ABSOLUTA CASO TODAS FALHEM
     if (!textoResposta) {
       textoResposta = "Olá Samuel! Tivemos uma instabilidade momentânea em todas as redes de IA, mas já estou voltando ao normal.";
       provedorUsado = "Sistema (Emergência)";
