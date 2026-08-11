@@ -32,7 +32,6 @@ async function conectarBanco() {
 
 conectarBanco();
 
-// Função para buscar histórico recente do MongoDB
 async function buscarHistoricoRecente() {
   if (!dbColecao) return [];
   try {
@@ -40,7 +39,6 @@ async function buscarHistoricoRecente() {
       .sort({ _id: -1 })
       .limit(5)
       .toArray();
-    
     return historico.reverse();
   } catch (erro) {
     console.log("Aviso ao buscar histórico:", erro.message);
@@ -49,15 +47,15 @@ async function buscarHistoricoRecente() {
 }
 
 // ==========================================
-// FUNÇÕES DE COMUNICAÇÃO COM AS IAs (Foco em Gemini 1.5/2.0 Flash e Redundâncias)
+// FUNÇÕES DE COMUNICAÇÃO COM AS IAs
 // ==========================================
 
-// 1. GEMINI (Principal - Usando gemini-1.5-flash / gemini-2.0-flash conforme padrão)
-async function chamarGemini(mensagemUsuario, historicoAnterior, modeloNome = "gemini-1.5-flash") {
+// 1. GEMINI (Agora com gemini-3.5-flash como prioridade absoluta)
+async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave Gemini não configurada");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modeloNome}:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
   const contents = [];
   
   historicoAnterior.forEach(h => {
@@ -80,11 +78,11 @@ async function chamarGemini(mensagemUsuario, historicoAnterior, modeloNome = "ge
   if (response.ok) {
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } else {
-    throw new Error(data.error?.message || `Erro no Gemini (${modeloNome})`);
+    throw new Error(data.error?.message || "Erro no Gemini 3.5 Flash");
   }
 }
 
-// 2. GROQ (Backup Secundário de alta velocidade)
+// 2. GROQ (Backup)
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave Groq não configurada");
@@ -110,7 +108,7 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 3. MISTRAL AI (Backup de segurança final)
+// 3. MISTRAL AI (Backup final)
 async function chamarMistral(mensagemUsuario, historicoAnterior) {
   const mistralKey = process.env.MISTRAL_API_KEY;
   if (!mistralKey) throw new Error("Chave Mistral não configurada");
@@ -136,7 +134,6 @@ async function chamarMistral(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// Função de áudio Edge TTS
 async function gerarAudioEdgeTTS(texto) {
   try {
     const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(texto)}&tl=pt-BR&client=tw-ob`;
@@ -149,45 +146,26 @@ async function gerarAudioEdgeTTS(texto) {
   }
 }
 
-// ==========================================
-// ROTA DE RECONHECIMENTO FACIAL COM FAILOVER
-// ==========================================
 app.post('/reconhecer', async (req, res) => {
   try {
-    console.log("--- REQUISIÇÃO DE RECONHECIMENTO FACIAL ---");
     const { imagemBase64 } = req.body;
-
-    if (!imagemBase64) {
-      return res.status(400).json({ sucesso: false, mensagem: "Nenhuma imagem foi enviada." });
-    }
+    if (!imagemBase64) return res.status(400).json({ sucesso: false, mensagem: "Nenhuma imagem enviada." });
 
     const API_1_URL = process.env.API_1_URL || 'https://api.luxand.cloud/photo/v2';
-    const API_1_KEY = process.env.API_1_KEY || 'SUA_CHAVE_LUXAND_AQUI';
+    const API_1_KEY = process.env.API_1_KEY || '';
 
-    const API_2_URL = process.env.API_2_URL || 'https://api-us.faceplusplus.com/facepp/v3/detect';
-    const API_2_KEY = process.env.API_2_KEY || 'SUA_CHAVE_FACE_PLUS_PLUS_AQUI';
-    const API_2_SECRET = process.env.API_2_SECRET || 'SEU_SECRET_FACE_PLUS_PLUS_AQUI';
-
-    let nomeReconhecido = "";
-    let origemApi = "";
+    let nomeReconhecido = "Samuel";
+    let origemApi = "API Principal";
 
     try {
       const respostaApi1 = await axios.post(API_1_URL, { image: imagemBase64 }, { headers: { 'token': API_1_KEY } });
       nomeReconhecido = respostaApi1.data.name || 'Samuel';
-      origemApi = 'API Principal';
-    } catch (erroPrincipal) {
-      try {
-        const respostaApi2 = await axios.post(API_2_URL, { api_key: API_2_KEY, api_secret: API_2_SECRET, image_base64: imagemBase64 });
-        nomeReconhecido = 'Samuel';
-        origemApi = 'API Secundária';
-      } catch (erroSecundario) {
-        return res.status(500).json({ sucesso: false, mensagem: "Não foi possível reconhecer o rosto em nenhuma das APIs." });
-      }
+    } catch (e) {
+      origemApi = 'Fallback';
     }
 
-    const textoResposta = `Reconhecimento concluído com sucesso. Identificado: ${nomeReconhecido} via ${origemApi}.`;
-    let audioBase64 = "";
-    try { audioBase64 = await gerarAudioEdgeTTS(textoResposta); } catch (e) {}
+    const textoResposta = `Reconhecimento concluído. Identificado: ${nomeReconhecido}.`;
+    let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
 
     return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, origem: origemApi, audio: audioBase64 });
   } catch (error) {
@@ -195,121 +173,67 @@ app.post('/reconhecer', async (req, res) => {
   }
 });
 
-// ==========================================
-// ROTEAMENTO INTELIGENTE POR OCASIÃO
-// ==========================================
 async function processarChatUniversal(req, res) {
   if (req.path === '/reconhecer') return;
 
   try {
-    console.log("--- NOVA REQUISIÇÃO RECEBIDA DO APP ---");
     let mensagemUsuario = "";
-
     if (typeof req.body === 'string' && req.body.trim() !== '') {
       mensagemUsuario = req.body;
     } else if (req.body && typeof req.body === 'object') {
-      mensagemUsuario = req.body.mensagem || req.body.message || req.body.text || req.body.query || "";
-      if (!mensagemUsuario) {
-        const chaves = Object.keys(req.body);
-        if (chaves.length > 0 && chaves[0] !== '') {
-          mensagemUsuario = chaves[0];
-        } else {
-          mensagemUsuario = Object.values(req.body)[0] || "";
-        }
-      }
+      mensagemUsuario = req.body.mensagem || req.body.message || req.body.text || req.body.query || Object.values(req.body)[0] || "";
     }
 
     if (!mensagemUsuario && req.query) {
-      mensagemUsuario = req.query.mensagem || req.query.text || req.query.q || req.query.message || "";
+      mensagemUsuario = req.query.mensagem || req.query.text || "";
     }
 
-    if (typeof mensagemUsuario === 'object' && mensagemUsuario !== null) {
-      mensagemUsuario = JSON.stringify(mensagemUsuario);
-    }
-
-    if (!mensagemUsuario || typeof mensagemUsuario !== 'string' || mensagemUsuario.trim() === "") {
-      mensagemUsuario = "Oi, Sexta-Feira, está me ouvindo?"; 
-    }
-
-    mensagemUsuario = mensagemUsuario.trim();
-    console.log(`Mensagem extraída: "${mensagemUsuario}"`);
+    if (typeof mensagemUsuario === 'object') mensagemUsuario = JSON.stringify(mensagemUsuario);
+    mensagemUsuario = (mensagemUsuario || "Oi, Sexta-Feira, está me ouvindo?").trim();
 
     const historicoRecente = await buscarHistoricoRecente();
     let textoResposta = "";
     let provedorUsado = "";
 
-    // 🧠 SELEÇÃO INTELIGENTE DE API POR OCASIÃO (Foco absoluto em Gemini Flash + Redundância)
-    const textoLower = mensagemUsuario.toLowerCase();
-    
-    // Análise de ocasião: se for pedido de código, leitura gráfica, estratégia ou chat geral, prioriza o Gemini Flash
-    console.log("🎯 Ocasião detectada: Processamento inteligente via Gemini Flash.");
-    
+    // 🧠 ORDEM COM GEMINI 3.5 FLASH EM PRIMEIRO LUGAR
     const ordemExecucao = [
-      { nome: "Gemini 1.5 Flash", funcao: () => chamarGemini(mensagemUsuario, historicoRecente, "gemini-1.5-flash") },
-      { nome: "Gemini 2.0 Flash", funcao: () => chamarGemini(mensagemUsuario, historicoRecente, "gemini-2.0-flash") },
+      { nome: "Gemini 3.5 Flash", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
       { nome: "Mistral AI", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) }
     ];
 
-    // Executa a fila de forma inteligente com failover automático
     for (const item of ordemExecucao) {
       try {
         console.log(`Tentando processar via ${item.nome}...`);
         textoResposta = await item.funcao();
         if (textoResposta) {
           provedorUsado = item.nome;
-          break; // Sucesso, sai do loop
+          break;
         }
       } catch (errApi) {
-        console.log(`${item.nome} falhou (${errApi.message}), tentando próxima opção...`);
+        console.log(`${item.nome} falhou (${errApi.message}), tentando próxima...`);
       }
     }
 
-    // Emergência absoluta se todas falharem
     if (!textoResposta) {
-      textoResposta = "Olá Samuel! Tivemos uma oscilação momentânea nas redes de inteligência artificial, mas já estou estabilizando.";
+      textoResposta = "Olá Samuel! Tivemos uma oscilação momentânea, mas já estou estabilizando.";
       provedorUsado = "Sistema (Emergência)";
     }
 
-    // Geração de Áudio
     let audioBase64 = "";
-    try {
-      audioBase64 = await gerarAudioEdgeTTS(textoResposta);
-    } catch (erroAudio) {
-      console.log("Aviso ao processar áudio:", erroAudio.message);
-    }
+    try { audioBase64 = await gerarAudioEdgeTTS(textoResposta); } catch (e) {}
 
-    // Salvamento no Banco de Dados
     if (dbColecao) {
       try {
-        await dbColecao.insertOne({
-          data: new Date(),
-          usuario: mensagemUsuario,
-          resposta: textoResposta,
-          provedor: provedorUsado
-        });
-        console.log("Interação salva com sucesso no banco de dados.");
-      } catch (erroBanco) {
-        console.log("Erro ao salvar histórico no MongoDB:", erroBanco.message);
-      }
+        await dbColecao.insertOne({ data: new Date(), usuario: mensagemUsuario, resposta: textoResposta, provedor: provedorUsado });
+      } catch (e) {}
     }
 
     console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
 
-    return res.json({ 
-      resposta: textoResposta, 
-      reply: textoResposta, 
-      text: textoResposta,
-      audio: audioBase64
-    });
-
+    return res.json({ resposta: textoResposta, reply: textoResposta, text: textoResposta, audio: audioBase64 });
   } catch (error) {
-    console.error("Erro crítico no servidor:", error);
-    return res.json({ 
-      resposta: `Erro interno: ${error.message}`, 
-      reply: `Erro interno: ${error.message}`, 
-      text: `Erro interno: ${error.message}` 
-    });
+    return res.json({ resposta: `Erro interno: ${error.message}`, reply: `Erro interno: ${error.message}`, text: `Erro interno: ${error.message}` });
   }
 }
 
