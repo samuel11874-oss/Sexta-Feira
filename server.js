@@ -8,8 +8,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-// Identidade fixa da assistente
-const SISTEMA_IDENTIDADE = "Você se chama Sexta-Feira. Você é a assistente pessoal inteligente e prestativa do Samuel. Nunca esqueça sua identidade: seu nome é Sexta-Feira.";
+// Identidade fixa da assistente com a regra restrita de texto limpo para voz
+const SISTEMA_IDENTIDADE = "Você se chama Sexta-Feira. Você é a assistente pessoal inteligente e prestativa do Samuel. Nunca esqueça sua identidade: seu nome é Sexta-Feira. REGRA OBRIGATÓRIA DE COMUNICAÇÃO: Nunca utilize asteriscos (*), marcações de ações entre parênteses, efeitos sonoros, tons de voz ou encenações nas suas respostas. Responda sempre em texto puro, de forma natural, direta, limpa e objetiva, ideal para leitura em voz alta.";
 
 // Configuração do MongoDB para Memória
 const mongoUri = process.env.MONGO_URI;
@@ -52,12 +52,12 @@ async function buscarHistoricoRecente() {
 // FUNÇÕES DE COMUNICAÇÃO COM AS 4 IAs GRATUITAS
 // ==========================================
 
-// 1. GEMINI (Google AI Studio)
+// 1. GEMINI (Google AI Studio) - URL corrigida para gemini-1.5-flash
 async function chamarGeminiComHistorico(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("A chave GEMINI_API_KEY não está configurada!");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
 
   const contents = [];
   historicoAnterior.forEach(h => {
@@ -106,7 +106,7 @@ async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) 
       "X-Title": "SextaFeiraApp"
     },
     body: JSON.stringify({
-      model: "google/gemini-flash-1.5", // Modelo gratuito padrão de alta performance no OpenRouter
+      model: "google/gemini-flash-1.5",
       messages: messages
     })
   });
@@ -276,7 +276,7 @@ app.post('/reconhecer', async (req, res) => {
   }
 });
 
-// Função Principal de Processamento do App (Chat Universal com as 4 IAs em Cadeia Inteligente)
+// Função Principal de Processamento do App
 async function processarChatUniversal(req, res) {
   if (req.path === '/reconhecer') return;
 
@@ -321,7 +321,7 @@ async function processarChatUniversal(req, res) {
     // 1. TENTATIVA 1: GEMINI
     try {
       textoResposta = await chamarGeminiComHistorico(mensagemUsuario, historicoRecente);
-      provedorUsado = "Gemini 3.5 Flash";
+      provedorUsado = "Gemini 1.5 Flash";
     } catch (errGemini) {
       console.log("Gemini indisponível, acionando OpenRouter...", errGemini.message);
     }
@@ -358,7 +358,7 @@ async function processarChatUniversal(req, res) {
 
     // 5. EMERGÊNCIA ABSOLUTA CASO TODAS FALHEM
     if (!textoResposta) {
-      textoResposta = "Olá Samuel! Tivemos uma instabilidade momentânea em todas as redes de IA, mas já estou voltando ao normal.";
+      textoResposta = "Olá Samuel! Tivemos uma instabilidade momentânea, mas já estou voltando ao normal.";
       provedorUsado = "Sistema (Emergência)";
     }
 
