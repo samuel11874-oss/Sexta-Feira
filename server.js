@@ -52,7 +52,7 @@ async function buscarHistoricoRecente() {
 // FUNÇÕES DE COMUNICAÇÃO COM AS IAs
 // ==========================================
 
-// 1. OPENROUTER - (Llama Gratuito com Rastreamento de Erro - AGORA É O PRINCIPAL)
+// 1. OPENROUTER - (Usando Google Gemma 2 9B Gratuito)
 async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) {
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (!openRouterKey) throw new Error("Chave OpenRouter não configurada");
@@ -75,7 +75,7 @@ async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) 
       "X-Title": "SextaFeiraApp"
     },
     body: JSON.stringify({
-      model: "meta-llama/llama-3.1-8b-instruct:free",
+      model: "google/gemma-2-9b-it:free",
       messages: messages
     })
   });
@@ -84,7 +84,6 @@ async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) 
   if (response.ok && data.choices?.[0]?.message?.content) {
     return data.choices[0].message.content;
   } else {
-    // Código de rastreio de erro de alta precisão
     console.error("⛔ ERRO DETALHADO DO OPENROUTER:", JSON.stringify(data));
     throw new Error(data.error?.message || "Erro no OpenRouter");
   }
@@ -289,9 +288,7 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // A CHAMADA DO GEMINI FOI REMOVIDA DAQUI (Desativado)
-
-    // 1. TENTATIVA 1: OPENROUTER (Agora é o principal)
+    // 1. TENTATIVA 1: OPENROUTER (Gemma 2 Gratuito)
     try {
       textoResposta = await chamarOpenRouterComHistorico(mensagemUsuario, historicoRecente);
       provedorUsado = "OpenRouter";
