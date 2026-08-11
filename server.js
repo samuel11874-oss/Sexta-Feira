@@ -48,8 +48,11 @@ async function buscarHistoricoRecente() {
   }
 }
 
-// Funções de Comunicação com as IAs (com suporte a histórico)
+// ==========================================
+// FUNÇÕES DE COMUNICAÇÃO COM AS 4 IAs GRATUITAS
+// ==========================================
 
+// 1. GEMINI (Google AI Studio)
 async function chamarGeminiComHistorico(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("A chave GEMINI_API_KEY não está configurada!");
@@ -80,6 +83,43 @@ async function chamarGeminiComHistorico(mensagemUsuario, historicoAnterior) {
   }
 }
 
+// 2. OPENROUTER (Agregador Universal Gratuito)
+async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) {
+  const openRouterKey = process.env.OPENROUTER_API_KEY;
+  if (!openRouterKey) throw new Error("Chave OpenRouter não configurada");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${openRouterKey}`,
+      "HTTP-Referer": "https://render.com", 
+      "X-Title": "SextaFeiraApp"
+    },
+    body: JSON.stringify({
+      model: "google/gemini-flash-1.5", // Modelo gratuito padrão de alta performance no OpenRouter
+      messages: messages
+    })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error("Erro no OpenRouter");
+  }
+}
+
+// 3. GROQ (Llama 3.3 Ultra-rápido)
 async function chamarGroqComHistorico(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave Groq não configurada");
@@ -113,6 +153,40 @@ async function chamarGroqComHistorico(mensagemUsuario, historicoAnterior) {
   }
 }
 
+// 4. MISTRAL AI (Camada de Contingência)
+async function chamarMistralComHistorico(mensagemUsuario, historicoAnterior) {
+  const mistralKey = process.env.MISTRAL_API_KEY;
+  if (!mistralKey) throw new Error("Chave Mistral não configurada");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${mistralKey}`
+    },
+    body: JSON.stringify({
+      model: "mistral-small-latest",
+      messages: messages
+    })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error("Erro no Mistral");
+  }
+}
+
 // Função de áudio robusta
 async function gerarAudioEdgeTTS(texto) {
   try {
@@ -138,7 +212,6 @@ app.post('/reconhecer', async (req, res) => {
       return res.status(400).json({ sucesso: false, mensagem: "Nenhuma imagem foi enviada." });
     }
 
-    // Configurações das APIs (Puxadas de variáveis de ambiente do Render)
     const API_1_URL = process.env.API_1_URL || 'https://api.luxand.cloud/photo/v2';
     const API_1_KEY = process.env.API_1_KEY || 'SUA_CHAVE_LUXAND_AQUI';
 
@@ -149,7 +222,6 @@ app.post('/reconhecer', async (req, res) => {
     let nomeReconhecido = "";
     let origemApi = "";
 
-    // --- TENTATIVA 1: API PRINCIPAL ---
     try {
       console.log("Tentando reconhecimento facial pela API Principal...");
       const respostaApi1 = await axios.post(API_1_URL, {
@@ -161,9 +233,8 @@ app.post('/reconhecer', async (req, res) => {
       nomeReconhecido = respostaApi1.data.name || 'Samuel';
       origemApi = 'API Principal';
     } catch (erroPrincipal) {
-      console.log("API Principal falhou ou atingiu o limite. Alternando para a API Secundária...", erroPrincipal.message);
+      console.log("API Principal falhou. Alternando para a API Secundária...", erroPrincipal.message);
 
-      // --- TENTATIVA 2: API SECUNDÁRIA (FAILOVER AUTOMÁTICO) ---
       try {
         const respostaApi2 = await axios.post(API_2_URL, {
           api_key: API_2_KEY,
@@ -171,7 +242,7 @@ app.post('/reconhecer', async (req, res) => {
           image_base64: imagemBase64
         });
 
-        nomeReconhecido = 'Samuel'; // Ajuste conforme o retorno exato da sua API 2
+        nomeReconhecido = 'Samuel';
         origemApi = 'API Secundária';
       } catch (erroSecundario) {
         console.error("Ambas as APIs de reconhecimento falharam:", erroSecundario.message);
@@ -205,9 +276,8 @@ app.post('/reconhecer', async (req, res) => {
   }
 });
 
-// Função Principal de Processamento do App (Chat Universal)
+// Função Principal de Processamento do App (Chat Universal com as 4 IAs em Cadeia Inteligente)
 async function processarChatUniversal(req, res) {
-  // Evita interceptar a rota de reconhecimento facial caso caia no all(*)
   if (req.path === '/reconhecer') return;
 
   try {
@@ -248,31 +318,51 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // 1. TENTA GEMINI COM HISTÓRICO
+    // 1. TENTATIVA 1: GEMINI
     try {
       textoResposta = await chamarGeminiComHistorico(mensagemUsuario, historicoRecente);
       provedorUsado = "Gemini 3.5 Flash";
     } catch (errGemini) {
-      console.log("Gemini indisponível, acionando Groq com histórico...", errGemini.message);
+      console.log("Gemini indisponível, acionando OpenRouter...", errGemini.message);
     }
 
-    // 2. GROQ FALLBACK COM HISTÓRICO
+    // 2. TENTATIVA 2: OPENROUTER
     if (!textoResposta) {
       try {
-        textoResposta = await chamarGroqComHistorico(mensagemUsuario, historicoRecente);
-        provedorUsado = "Groq (Fallback)";
-      } catch (errGroq) {
-        console.log("Groq fallback falhou:", errGroq.message);
+        textoResposta = await chamarOpenRouterComHistorico(mensagemUsuario, historicoRecente);
+        provedorUsado = "OpenRouter";
+      } catch (errOpenRouter) {
+        console.log("OpenRouter indisponível, acionando Groq...", errOpenRouter.message);
       }
     }
 
-    // 3. EMERGÊNCIA ABSOLUTA
+    // 3. TENTATIVA 3: GROQ
     if (!textoResposta) {
-      textoResposta = "Olá Samuel! Tivemos uma instabilidade momentânea na conexão, mas já estou voltando ao normal.";
+      try {
+        textoResposta = await chamarGroqComHistorico(mensagemUsuario, historicoRecente);
+        provedorUsado = "Groq";
+      } catch (errGroq) {
+        console.log("Groq indisponível, acionando Mistral...", errGroq.message);
+      }
+    }
+
+    // 4. TENTATIVA 4: MISTRAL
+    if (!textoResposta) {
+      try {
+        textoResposta = await chamarMistralComHistorico(mensagemUsuario, historicoRecente);
+        provedorUsado = "Mistral AI";
+      } catch (errMistral) {
+        console.log("Mistral falhou:", errMistral.message);
+      }
+    }
+
+    // 5. EMERGÊNCIA ABSOLUTA CASO TODAS FALHEM
+    if (!textoResposta) {
+      textoResposta = "Olá Samuel! Tivemos uma instabilidade momentânea em todas as redes de IA, mas já estou voltando ao normal.";
       provedorUsado = "Sistema (Emergência)";
     }
 
-    // 4. GERA O ÁUDIO
+    // GERA O ÁUDIO
     let audioBase64 = "";
     try {
       audioBase64 = await gerarAudioEdgeTTS(textoResposta);
@@ -280,7 +370,7 @@ async function processarChatUniversal(req, res) {
       console.log("Aviso ao processar áudio:", erroAudio.message);
     }
 
-    // 5. SALVA NO BANCO DE DADOS
+    // SALVA NO BANCO DE DADOS
     if (dbColecao) {
       try {
         await dbColecao.insertOne({
