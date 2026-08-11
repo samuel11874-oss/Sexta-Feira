@@ -52,12 +52,12 @@ async function buscarHistoricoRecente() {
 // FUNÇÕES DE COMUNICAÇÃO COM AS 4 IAs GRATUITAS
 // ==========================================
 
-// 1. GEMINI (Google AI Studio) - URL corrigida para gemini-1.5-flash
+// 1. GEMINI (Google AI Studio) - URL atualizada para o modelo gemini-2.0-flash
 async function chamarGeminiComHistorico(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("A chave GEMINI_API_KEY não está configurada!");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
 
   const contents = [];
   historicoAnterior.forEach(h => {
@@ -321,7 +321,7 @@ async function processarChatUniversal(req, res) {
     // 1. TENTATIVA 1: GEMINI
     try {
       textoResposta = await chamarGeminiComHistorico(mensagemUsuario, historicoRecente);
-      provedorUsado = "Gemini 1.5 Flash";
+      provedorUsado = "Gemini 2.0 Flash";
     } catch (errGemini) {
       console.log("Gemini indisponível, acionando OpenRouter...", errGemini.message);
     }
