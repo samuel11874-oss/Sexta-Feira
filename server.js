@@ -52,12 +52,11 @@ async function buscarHistoricoRecente() {
 // FUNÇÕES DE COMUNICAÇÃO COM AS 4 IAs GRATUITAS
 // ==========================================
 
-// 1. GEMINI (Google AI Studio)
+// 1. GEMINI (Google AI Studio) - Mantido no 3.5
 async function chamarGeminiComHistorico(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("A chave GEMINI_API_KEY não está configurada!");
 
-  // Atualizado para usar o Gemini 3.5 Flash
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
 
   const contents = [];
@@ -84,7 +83,7 @@ async function chamarGeminiComHistorico(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 2. OPENROUTER (Agregador Universal Gratuito)
+// 2. OPENROUTER (Agregador Universal Gratuito) - Atualizado para Llama Gratuito
 async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) {
   const openRouterKey = process.env.OPENROUTER_API_KEY;
   if (!openRouterKey) throw new Error("Chave OpenRouter não configurada");
@@ -107,7 +106,7 @@ async function chamarOpenRouterComHistorico(mensagemUsuario, historicoAnterior) 
       "X-Title": "SextaFeiraApp"
     },
     body: JSON.stringify({
-      model: "google/gemini-3.5-flash", // Atualizado para o Gemini 3.5 ativo
+      model: "meta-llama/llama-3.1-8b-instruct:free", // Modelo com rota 100% gratuita no OpenRouter!
       messages: messages
     })
   });
