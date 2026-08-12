@@ -8,8 +8,12 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-// Identidade restrita e limpa para evitar textos gigantes ou asteriscos
-const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal inteligente, direta, leal e prestativa do Samuel. REGRAS OBRIGATÓRIAS: Responda sempre de forma natural, educada e concisa. NUNCA use asteriscos (*), NUNCA use formatação de markdown como negrito ou itálico nas respostas, NUNCA crie falas teatrais, efeitos sonoros ou histórias de ficção científica, multiverso ou dimensões. Seja prática e vá direto ao ponto.";
+// Identidade ultra inteligente, natural e direta
+const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal sênior, extremamente inteligente, ágil, leal e prestativa do Samuel. REGRAS OBRIGATÓRIAS: Responda sempre de forma natural, inteligente, educada e concisa. NUNCA use asteriscos (*), NUNCA use formatação de markdown como negrito ou itálico, NUNCA crie falas teatrais, efeitos sonoros ou histórias de ficção científica. Seja prática, perspicaz e vá direto ao ponto.";
+
+// Sistema de Cache para Economia de Requisições
+const cacheRespostas = new Map();
+const TEMPO_CACHE = 10 * 60 * 1000; // 10 minutos de validade para perguntas repetidas
 
 // Configuração do MongoDB para Memória
 const mongoUri = process.env.MONGO_URI;
@@ -47,62 +51,10 @@ async function buscarHistoricoRecente() {
 }
 
 // ==========================================
-// FUNÇÕES DE COMUNICAÇÃO COM AS IAs
+// FUNÇÕES DE COMUNICAÇÃO COM AS IAs (Gemini em 1º)
 // ==========================================
 
-// 1. GROQ (Prioridade Principal)
-async function chamarGroq(mensagemUsuario, historicoAnterior) {
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) throw new Error("Chave Groq não configurada");
-
-  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
-  historicoAnterior.forEach(h => {
-    if (h.usuario) messages.push({ role: "user", content: h.usuario });
-    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
-  });
-  messages.push({ role: "user", content: mensagemUsuario });
-
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
-    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.3 })
-  });
-
-  const data = await response.json();
-  if (response.ok && data.choices?.[0]?.message?.content) {
-    return data.choices[0].message.content;
-  } else {
-    throw new Error(data.error?.message || "Erro no Groq");
-  }
-}
-
-// 2. MISTRAL AI (Backup 1)
-async function chamarMistral(mensagemUsuario, historicoAnterior) {
-  const mistralKey = process.env.MISTRAL_API_KEY;
-  if (!mistralKey) throw new Error("Chave Mistral não configurada");
-
-  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
-  historicoAnterior.forEach(h => {
-    if (h.usuario) messages.push({ role: "user", content: h.usuario });
-    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
-  });
-  messages.push({ role: "user", content: mensagemUsuario });
-
-  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
-    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.3 })
-  });
-
-  const data = await response.json();
-  if (response.ok && data.choices?.[0]?.message?.content) {
-    return data.choices[0].message.content;
-  } else {
-    throw new Error(data.error?.message || "Erro no Mistral");
-  }
-}
-
-// 3. GEMINI 3.5 FLASH (Backup 2)
+// 1. GEMINI 3.5 FLASH (Prioridade Principal)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave Gemini não configurada");
@@ -135,7 +87,59 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// ATUALIZADO: Voz Humana Neural via Edge TTS (Francisca)
+// 2. GROQ (Backup 1)
+async function chamarGroq(mensagemUsuario, historicoAnterior) {
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey) throw new Error("Chave Groq não configurada");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
+    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.3 })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error(data.error?.message || "Erro no Groq");
+  }
+}
+
+// 3. MISTRAL AI (Backup 2)
+async function chamarMistral(mensagemUsuario, historicoAnterior) {
+  const mistralKey = process.env.MISTRAL_API_KEY;
+  if (!mistralKey) throw new Error("Chave Mistral não configurada");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
+    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.3 })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error(data.error?.message || "Erro no Mistral");
+  }
+}
+
+// Voz Humana Neural via Edge TTS (Francisca)
 async function gerarAudioEdgeTTS(texto) {
   try {
     const textoLimpo = texto.replace(/[*_#`]/g, '');
@@ -207,14 +211,23 @@ async function processarChatUniversal(req, res) {
     if (typeof mensagemUsuario === 'object') mensagemUsuario = JSON.stringify(mensagemUsuario);
     mensagemUsuario = (mensagemUsuario || "Oi, Sexta-Feira, está me ouvindo?").trim();
 
+    // ECONOMIA DE REQUISIÇÃO: Verifica se já temos essa resposta guardada no Cache recentemente
+    const chaveCache = mensagemUsuario.toLowerCase();
+    const cacheAtual = cacheRespostas.get(chaveCache);
+    if (cacheAtual && (Date.now() - cacheAtual.tempo < TEMPO_CACHE)) {
+      console.log("Resposta recuperada do Cache (Economia de Requisição ativada)!");
+      return res.json({ resposta: cacheAtual.resposta, reply: cacheAtual.resposta, text: cacheAtual.resposta, audio: cacheAtual.audio });
+    }
+
     const historicoRecente = await buscarHistoricoRecente();
     let textoResposta = "";
     let provedorUsado = "";
 
+    // Ordem atualizada: Gemini em 1º lugar
     const ordemExecucao = [
+      { nome: "Gemini 3.5 Flash", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
-      { nome: "Mistral AI", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) },
-      { nome: "Gemini 3.5 Flash", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) }
+      { nome: "Mistral AI", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) }
     ];
 
     for (const item of ordemExecucao) {
@@ -235,11 +248,13 @@ async function processarChatUniversal(req, res) {
       provedorUsado = "Sistema (Emergência)";
     }
 
-    // Limpeza extra para garantir que nenhum asterisco vá para o app ou para o TTS
     let textoLimpoFinal = textoResposta.replace(/[*_#`]/g, '');
 
     let audioBase64 = "";
     try { audioBase64 = await gerarAudioEdgeTTS(textoLimpoFinal); } catch (e) {}
+
+    // Salva no Cache para economizar requisições futuras idênticas
+    cacheRespostas.set(chaveCache, { resposta: textoLimpoFinal, audio: audioBase64, tempo: Date.now() });
 
     if (dbColecao) {
       try {
