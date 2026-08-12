@@ -8,10 +8,10 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-// Identidade ultra inteligente, natural e direta
-const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal sênior, extremamente inteligente, ágil, leal e prestativa do Samuel. REGRAS OBRIGATÓRIAS: Responda sempre de forma natural, inteligente, educada e concisa. NUNCA use asteriscos (*), NUNCA use formatação de markdown como negrito ou itálico, NUNCA crie falas teatrais, efeitos sonoros ou histórias de ficção científica. Seja prática, perspicaz e vá direto ao ponto.";
+// Identidade inteligente e contínua
+const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal sênior, extremamente inteligente, ágil, leal e prestativa do Samuel. REGRAS OBRIGATÓRIAS: Responda sempre de forma natural, inteligente, educada e concisa baseando-se no histórico da conversa. NUNCA use asteriscos (*), NUNCA use formatação de markdown como negrito ou itálico, NUNCA crie falas teatrais, efeitos sonoros ou histórias de ficção científica. Seja prática, perspicaz e vá direto ao ponto.";
 
-// Configuração do MongoDB para Memória
+// Configuração do MongoDB para Memória de Longo Prazo
 const mongoUri = process.env.MONGO_URI;
 let dbColecao = null;
 
@@ -28,28 +28,36 @@ async function conectarBanco() {
 }
 conectarBanco();
 
+// Função blindada para resgatar as últimas interações do banco
 async function buscarHistoricoRecente() {
   if (!dbColecao) return [];
   try {
-    const historico = await dbColecao.find({}).sort({ _id: -1 }).limit(5).toArray();
-    return historico.reverse();
-  } catch (erro) { return []; }
+    const historico = await dbColecao.find({}).sort({ _id: -1 }).limit(6).toArray();
+    return historico.reverse(); // Do mais antigo para o mais recente
+  } catch (erro) { 
+    console.log("Erro ao buscar histórico:", erro.message);
+    return []; 
+  }
 }
 
 // ==========================================
 // FUNÇÕES DE COMUNICAÇÃO COM AS IAs
 // ==========================================
 
-// 1. GROQ (Prioridade Principal - Rápido e Inteligente)
+// 1. GROQ (Prioridade Principal com Histórico Injecionado Corretamente)
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave Groq não configurada");
 
   let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  
+  // Injeta o histórico real do MongoDB na memória da IA
   historicoAnterior.forEach(h => {
     if (h.usuario) messages.push({ role: "user", content: h.usuario });
     if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
   });
+
+  // Adiciona a mensagem atual do usuário
   messages.push({ role: "user", content: mensagemUsuario });
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -66,7 +74,7 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 2. GEMINI 1.5 FLASH (Backup Corrigido)
+// 2. GEMINI 1.5 FLASH (Backup)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave Gemini não configurada");
@@ -163,11 +171,12 @@ async function processarChatUniversal(req, res) {
     if (typeof mensagemUsuario === 'object') mensagemUsuario = JSON.stringify(mensagemUsuario);
     mensagemUsuario = (mensagemUsuario || "Oi, Sexta-Feira").trim();
 
+    // 1. Busca o histórico salvo no MongoDB
     const historicoRecente = await buscarHistoricoRecente();
     let textoResposta = "";
     let provedorUsado = "";
 
-    // Ordem limpa: Groq primeiro (sem travamentos) e Gemini correto como backup
+    // 2. Executa a IA enviando o histórico junto para manter a continuidade
     const ordemExecucao = [
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
       { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) }
@@ -194,6 +203,7 @@ async function processarChatUniversal(req, res) {
     let audioBase64 = "";
     try { audioBase64 = await gerarAudioEdgeTTS(textoLimpoFinal); } catch (e) {}
 
+    // 3. Salva a nova interação no MongoDB para alimentar as próximas conversas
     if (dbColecao) {
       try {
         await dbColecao.insertOne({ data: new Date(), usuario: mensagemUsuario, resposta: textoLimpoFinal, provedor: provedorUsado });
