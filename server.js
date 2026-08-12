@@ -50,7 +50,59 @@ async function buscarHistoricoRecente() {
 // FUNÇÕES DE COMUNICAÇÃO COM AS IAs
 // ==========================================
 
-// 1. GEMINI (Agora com gemini-3.5-flash como prioridade absoluta)
+// 1. GROQ (Prioridade Principal - Cota resetada)
+async function chamarGroq(mensagemUsuario, historicoAnterior) {
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey) throw new Error("Chave Groq não configurada");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
+    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error(data.error?.message || "Erro no Groq");
+  }
+}
+
+// 2. MISTRAL AI (Backup 1)
+async function chamarMistral(mensagemUsuario, historicoAnterior) {
+  const mistralKey = process.env.MISTRAL_API_KEY;
+  if (!mistralKey) throw new Error("Chave Mistral não configurada");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
+    body: JSON.stringify({ model: "mistral-small-latest", messages: messages })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error(data.error?.message || "Erro no Mistral");
+  }
+}
+
+// 3. GEMINI 3.5 FLASH (Backup 2)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave Gemini não configurada");
@@ -79,58 +131,6 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } else {
     throw new Error(data.error?.message || "Erro no Gemini 3.5 Flash");
-  }
-}
-
-// 2. GROQ (Backup)
-async function chamarGroq(mensagemUsuario, historicoAnterior) {
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) throw new Error("Chave Groq não configurada");
-
-  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
-  historicoAnterior.forEach(h => {
-    if (h.usuario) messages.push({ role: "user", content: h.usuario });
-    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
-  });
-  messages.push({ role: "user", content: mensagemUsuario });
-
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
-    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages })
-  });
-
-  const data = await response.json();
-  if (response.ok && data.choices?.[0]?.message?.content) {
-    return data.choices[0].message.content;
-  } else {
-    throw new Error(data.error?.message || "Erro no Groq");
-  }
-}
-
-// 3. MISTRAL AI (Backup final)
-async function chamarMistral(mensagemUsuario, historicoAnterior) {
-  const mistralKey = process.env.MISTRAL_API_KEY;
-  if (!mistralKey) throw new Error("Chave Mistral não configurada");
-
-  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
-  historicoAnterior.forEach(h => {
-    if (h.usuario) messages.push({ role: "user", content: h.usuario });
-    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
-  });
-  messages.push({ role: "user", content: mensagemUsuario });
-
-  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
-    body: JSON.stringify({ model: "mistral-small-latest", messages: messages })
-  });
-
-  const data = await response.json();
-  if (response.ok && data.choices?.[0]?.message?.content) {
-    return data.choices[0].message.content;
-  } else {
-    throw new Error(data.error?.message || "Erro no Mistral");
   }
 }
 
@@ -195,11 +195,11 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // 🧠 ORDEM COM GEMINI 3.5 FLASH EM PRIMEIRO LUGAR
+    // 🧠 ORDEM CORRIGIDA: Groq em 1º, Mistral em 2º, Gemini 3.5 Flash em 3º
     const ordemExecucao = [
-      { nome: "Gemini 3.5 Flash", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
-      { nome: "Mistral AI", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) }
+      { nome: "Mistral AI", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) },
+      { nome: "Gemini 3.5 Flash", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) }
     ];
 
     for (const item of ordemExecucao) {
