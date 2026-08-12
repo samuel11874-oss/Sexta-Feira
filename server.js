@@ -8,8 +8,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-// Identidade fixa da assistente
-const SISTEMA_IDENTIDADE = "Você se chama Sexta-Feira. Você é a assistente pessoal inteligente e prestativa do Samuel. Nunca esqueça sua identidade: seu nome é Sexta-Feira.";
+// Identidade restrita e limpa para evitar textos gigantes ou asteriscos
+const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal inteligente, direta, leal e prestativa do Samuel. REGRAS OBRIGATÓRIAS: Responda sempre de forma natural, educada e concisa. NUNCA use asteriscos (*), NUNCA use formatação de markdown como negrito ou itálico nas respostas, NUNCA crie falas teatrais, efeitos sonoros ou histórias de ficção científica, multiverso ou dimensões. Seja prática e vá direto ao ponto.";
 
 // Configuração do MongoDB para Memória
 const mongoUri = process.env.MONGO_URI;
@@ -50,7 +50,7 @@ async function buscarHistoricoRecente() {
 // FUNÇÕES DE COMUNICAÇÃO COM AS IAs
 // ==========================================
 
-// 1. GROQ (Prioridade Principal - Cota resetada)
+// 1. GROQ (Prioridade Principal)
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave Groq não configurada");
@@ -65,7 +65,7 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
-    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages })
+    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.3 })
   });
 
   const data = await response.json();
@@ -91,7 +91,7 @@ async function chamarMistral(mensagemUsuario, historicoAnterior) {
   const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
-    body: JSON.stringify({ model: "mistral-small-latest", messages: messages })
+    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.3 })
   });
 
   const data = await response.json();
@@ -122,7 +122,8 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SISTEMA_IDENTIDADE }] },
-      contents: contents
+      contents: contents,
+      generationConfig: { temperature: 0.3 }
     })
   });
 
@@ -136,7 +137,9 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
 
 async function gerarAudioEdgeTTS(texto) {
   try {
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(texto)}&tl=pt-BR&client=tw-ob`;
+    // Remove asteriscos e marcações antes de gerar o áudio para o app não ler "asterisco asterisco"
+    const textoLimpo = texto.replace(/[*_#`]/g, '');
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textoLimpo)}&tl=pt-BR&client=tw-ob`;
     const response = await fetch(url);
     if (!response.ok) return "";
     const arrayBuffer = await response.arrayBuffer();
@@ -195,7 +198,6 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // 🧠 ORDEM CORRIGIDA: Groq em 1º, Mistral em 2º, Gemini 3.5 Flash em 3º
     const ordemExecucao = [
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
       { nome: "Mistral AI", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) },
@@ -216,22 +218,25 @@ async function processarChatUniversal(req, res) {
     }
 
     if (!textoResposta) {
-      textoResposta = "Olá Samuel! Tivemos uma oscilação momentânea, mas já estou estabilizando.";
+      textoResposta = "Oi Samuel, estou ouvindo. Como posso ajudar?";
       provedorUsado = "Sistema (Emergência)";
     }
 
+    // Limpeza extra para garantir que nenhum asterisco vá para o app ou para o TTS
+    let textoLimpoFinal = textoResposta.replace(/[*_#`]/g, '');
+
     let audioBase64 = "";
-    try { audioBase64 = await gerarAudioEdgeTTS(textoResposta); } catch (e) {}
+    try { audioBase64 = await gerarAudioEdgeTTS(textoLimpoFinal); } catch (e) {}
 
     if (dbColecao) {
       try {
-        await dbColecao.insertOne({ data: new Date(), usuario: mensagemUsuario, resposta: textoResposta, provedor: provedorUsado });
+        await dbColecao.insertOne({ data: new Date(), usuario: mensagemUsuario, resposta: textoLimpoFinal, provedor: provedorUsado });
       } catch (e) {}
     }
 
     console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
 
-    return res.json({ resposta: textoResposta, reply: textoResposta, text: textoResposta, audio: audioBase64 });
+    return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
   } catch (error) {
     return res.json({ resposta: `Erro interno: ${error.message}`, reply: `Erro interno: ${error.message}`, text: `Erro interno: ${error.message}` });
   }
