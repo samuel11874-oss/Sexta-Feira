@@ -135,12 +135,25 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
   }
 }
 
+// ATUALIZADO: Voz Humana Neural via Edge TTS (Francisca)
 async function gerarAudioEdgeTTS(texto) {
   try {
-    // Remove asteriscos e marcações antes de gerar o áudio para o app não ler "asterisco asterisco"
     const textoLimpo = texto.replace(/[*_#`]/g, '');
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(textoLimpo)}&tl=pt-BR&client=tw-ob`;
-    const response = await fetch(url);
+    const voice = "pt-BR-FranciscaNeural";
+    const url = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+    
+    const body = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="pt-BR">
+                    <voice name="${voice}">
+                      <prosody rate="1.0" pitch="0%">${textoLimpo}</prosody>
+                    </voice>
+                  </speak>`;
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/ssml+xml" },
+      body: body
+    });
+
     if (!response.ok) return "";
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer).toString("base64");
