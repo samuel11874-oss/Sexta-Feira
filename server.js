@@ -11,19 +11,12 @@ app.use(express.text({ type: '*/*' }));
 // Identidade ultra inteligente, natural e direta
 const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal sênior, extremamente inteligente, ágil, leal e prestativa do Samuel. REGRAS OBRIGATÓRIAS: Responda sempre de forma natural, inteligente, educada e concisa. NUNCA use asteriscos (*), NUNCA use formatação de markdown como negrito ou itálico, NUNCA crie falas teatrais, efeitos sonoros ou histórias de ficção científica. Seja prática, perspicaz e vá direto ao ponto.";
 
-// Sistema de Cache para Economia de Requisições
-const cacheRespostas = new Map();
-const TEMPO_CACHE = 10 * 60 * 1000; // 10 minutos de validade para perguntas repetidas
-
 // Configuração do MongoDB para Memória
 const mongoUri = process.env.MONGO_URI;
 let dbColecao = null;
 
 async function conectarBanco() {
-  if (!mongoUri) {
-    console.log("AVISO: MONGO_URI não configurada. O armazenamento de longo prazo está desativado.");
-    return;
-  }
+  if (!mongoUri) return;
   try {
     const client = new MongoClient(mongoUri);
     await client.connect();
@@ -33,61 +26,21 @@ async function conectarBanco() {
     console.error("Erro ao conectar no MongoDB:", erro.message);
   }
 }
-
 conectarBanco();
 
 async function buscarHistoricoRecente() {
   if (!dbColecao) return [];
   try {
-    const historico = await dbColecao.find({})
-      .sort({ _id: -1 })
-      .limit(5)
-      .toArray();
+    const historico = await dbColecao.find({}).sort({ _id: -1 }).limit(5).toArray();
     return historico.reverse();
-  } catch (erro) {
-    console.log("Aviso ao buscar histórico:", erro.message);
-    return [];
-  }
+  } catch (erro) { return []; }
 }
 
 // ==========================================
-// FUNÇÕES DE COMUNICAÇÃO COM AS IAs (Gemini em 1º)
+// FUNÇÕES DE COMUNICAÇÃO COM AS IAs
 // ==========================================
 
-// 1. GEMINI 3.5 FLASH (Prioridade Principal)
-async function chamarGemini(mensagemUsuario, historicoAnterior) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) throw new Error("Chave Gemini não configurada");
-
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
-  const contents = [];
-  
-  historicoAnterior.forEach(h => {
-    if (h.usuario) contents.push({ role: "user", parts: [{ text: h.usuario }] });
-    if (h.resposta) contents.push({ role: "model", parts: [{ text: h.resposta }] });
-  });
-  
-  contents.push({ role: "user", parts: [{ text: mensagemUsuario }] });
-
-  const response = await fetch(geminiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: SISTEMA_IDENTIDADE }] },
-      contents: contents,
-      generationConfig: { temperature: 0.3 }
-    })
-  });
-
-  const data = await response.json();
-  if (response.ok) {
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  } else {
-    throw new Error(data.error?.message || "Erro no Gemini 3.5 Flash");
-  }
-}
-
-// 2. GROQ (Backup 1)
+// 1. GROQ (Prioridade Principal - Rápido e Inteligente)
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave Groq não configurada");
@@ -113,29 +66,36 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 3. MISTRAL AI (Backup 2)
-async function chamarMistral(mensagemUsuario, historicoAnterior) {
-  const mistralKey = process.env.MISTRAL_API_KEY;
-  if (!mistralKey) throw new Error("Chave Mistral não configurada");
+// 2. GEMINI 1.5 FLASH (Backup Corrigido)
+async function chamarGemini(mensagemUsuario, historicoAnterior) {
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) throw new Error("Chave Gemini não configurada");
 
-  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+  const contents = [];
+  
   historicoAnterior.forEach(h => {
-    if (h.usuario) messages.push({ role: "user", content: h.usuario });
-    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+    if (h.usuario) contents.push({ role: "user", parts: [{ text: h.usuario }] });
+    if (h.resposta) contents.push({ role: "model", parts: [{ text: h.resposta }] });
   });
-  messages.push({ role: "user", content: mensagemUsuario });
+  
+  contents.push({ role: "user", parts: [{ text: mensagemUsuario }] });
 
-  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+  const response = await fetch(geminiUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
-    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.3 })
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: SISTEMA_IDENTIDADE }] },
+      contents: contents,
+      generationConfig: { temperature: 0.3 }
+    })
   });
 
   const data = await response.json();
-  if (response.ok && data.choices?.[0]?.message?.content) {
-    return data.choices[0].message.content;
+  if (response.ok) {
+    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } else {
-    throw new Error(data.error?.message || "Erro no Mistral");
+    throw new Error(data.error?.message || "Erro no Gemini");
   }
 }
 
@@ -161,9 +121,7 @@ async function gerarAudioEdgeTTS(texto) {
     if (!response.ok) return "";
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer).toString("base64");
-  } catch (erro) {
-    return "";
-  }
+  } catch (erro) { return ""; }
 }
 
 app.post('/reconhecer', async (req, res) => {
@@ -175,19 +133,15 @@ app.post('/reconhecer', async (req, res) => {
     const API_1_KEY = process.env.API_1_KEY || '';
 
     let nomeReconhecido = "Samuel";
-    let origemApi = "API Principal";
-
     try {
       const respostaApi1 = await axios.post(API_1_URL, { image: imagemBase64 }, { headers: { 'token': API_1_KEY } });
       nomeReconhecido = respostaApi1.data.name || 'Samuel';
-    } catch (e) {
-      origemApi = 'Fallback';
-    }
+    } catch (e) {}
 
     const textoResposta = `Reconhecimento concluído. Identificado: ${nomeReconhecido}.`;
     let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
 
-    return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, origem: origemApi, audio: audioBase64 });
+    return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, audio: audioBase64 });
   } catch (error) {
     return res.status(500).json({ sucesso: false, erro: error.message });
   }
@@ -203,66 +157,48 @@ async function processarChatUniversal(req, res) {
     } else if (req.body && typeof req.body === 'object') {
       mensagemUsuario = req.body.mensagem || req.body.message || req.body.text || req.body.query || Object.values(req.body)[0] || "";
     }
-
     if (!mensagemUsuario && req.query) {
       mensagemUsuario = req.query.mensagem || req.query.text || "";
     }
-
     if (typeof mensagemUsuario === 'object') mensagemUsuario = JSON.stringify(mensagemUsuario);
-    mensagemUsuario = (mensagemUsuario || "Oi, Sexta-Feira, está me ouvindo?").trim();
-
-    // ECONOMIA DE REQUISIÇÃO: Verifica se já temos essa resposta guardada no Cache recentemente
-    const chaveCache = mensagemUsuario.toLowerCase();
-    const cacheAtual = cacheRespostas.get(chaveCache);
-    if (cacheAtual && (Date.now() - cacheAtual.tempo < TEMPO_CACHE)) {
-      console.log("Resposta recuperada do Cache (Economia de Requisição ativada)!");
-      return res.json({ resposta: cacheAtual.resposta, reply: cacheAtual.resposta, text: cacheAtual.resposta, audio: cacheAtual.audio });
-    }
+    mensagemUsuario = (mensagemUsuario || "Oi, Sexta-Feira").trim();
 
     const historicoRecente = await buscarHistoricoRecente();
     let textoResposta = "";
     let provedorUsado = "";
 
-    // Ordem atualizada: Gemini em 1º lugar
+    // Ordem limpa: Groq primeiro (sem travamentos) e Gemini correto como backup
     const ordemExecucao = [
-      { nome: "Gemini 3.5 Flash", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
-      { nome: "Mistral AI", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) }
+      { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) }
     ];
 
     for (const item of ordemExecucao) {
       try {
-        console.log(`Tentando processar via ${item.nome}...`);
         textoResposta = await item.funcao();
         if (textoResposta) {
           provedorUsado = item.nome;
           break;
         }
       } catch (errApi) {
-        console.log(`${item.nome} falhou (${errApi.message}), tentando próxima...`);
+        console.log(`${item.nome} falhou: ${errApi.message}`);
       }
     }
 
     if (!textoResposta) {
-      textoResposta = "Oi Samuel, estou ouvindo. Como posso ajudar?";
-      provedorUsado = "Sistema (Emergência)";
+      textoResposta = "Samuel, repita a pergunta por favor.";
+      provedorUsado = "Sistema";
     }
 
     let textoLimpoFinal = textoResposta.replace(/[*_#`]/g, '');
-
     let audioBase64 = "";
     try { audioBase64 = await gerarAudioEdgeTTS(textoLimpoFinal); } catch (e) {}
-
-    // Salva no Cache para economizar requisições futuras idênticas
-    cacheRespostas.set(chaveCache, { resposta: textoLimpoFinal, audio: audioBase64, tempo: Date.now() });
 
     if (dbColecao) {
       try {
         await dbColecao.insertOne({ data: new Date(), usuario: mensagemUsuario, resposta: textoLimpoFinal, provedor: provedorUsado });
       } catch (e) {}
     }
-
-    console.log(`Sucesso! Resposta gerada via: ${provedorUsado}`);
 
     return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
   } catch (error) {
