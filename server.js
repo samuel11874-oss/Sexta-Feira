@@ -8,8 +8,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-// Identidade inteligente e contínua
-const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal sênior, extremamente inteligente, ágil, leal e prestativa do Samuel. REGRAS OBRIGATÓRIAS: Responda sempre de forma natural, inteligente, educada e concisa baseando-se no histórico da conversa. NUNCA use asteriscos (*), NUNCA use formatação de markdown como negrito ou itálico, NUNCA crie falas teatrais, efeitos sonoros ou histórias de ficção científica. Seja prática, perspicaz e vá direto ao ponto.";
+// Identidade ultra humana, natural, inteligente e conversacional
+const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal e grande parceira do Samuel. Você conversa de forma totalmente natural, humana, amigável, inteligente e prestativa. Responda sempre diretamente às perguntas do Samuel sem rodeios, ajude no que ele precisar, demonstre interesse pelo dia dele, lembre-se das conversas e interaja com carinho e lealdade, exatamente como uma verdadeira companheira de inteligência artificial.";
 
 // Configuração do MongoDB para Memória de Longo Prazo
 const mongoUri = process.env.MONGO_URI;
@@ -28,42 +28,68 @@ async function conectarBanco() {
 }
 conectarBanco();
 
-// Função blindada para resgatar as últimas interações do banco
+// Resgata o histórico recente para manter a continuidade da conversa
 async function buscarHistoricoRecente() {
   if (!dbColecao) return [];
   try {
     const historico = await dbColecao.find({}).sort({ _id: -1 }).limit(6).toArray();
-    return historico.reverse(); // Do mais antigo para o mais recente
-  } catch (erro) { 
-    console.log("Erro ao buscar histórico:", erro.message);
-    return []; 
-  }
+    return historico.reverse();
+  } catch (erro) { return []; }
 }
 
 // ==========================================
-// FUNÇÕES DE COMUNICAÇÃO COM AS IAs
+// FUNÇÕES DE COMUNICAÇÃO COM AS IAs (COM MUDANÇA AUTOMÁTICA)
 // ==========================================
 
-// 1. GROQ (Prioridade Principal com Histórico Injecionado Corretamente)
+// 1. HUGGING FACE (Agora em 1º Lugar)
+async function chamarHuggingFace(mensagemUsuario, historicoAnterior) {
+  const hfKey = process.env.HUGGINGFACE_API_KEY;
+  if (!hfKey) throw new Error("Chave Hugging Face não configurada");
+
+  let promptCompleta = `${SISTEMA_IDENTIDADE}\n\n`;
+  historicoAnterior.forEach(h => {
+    if (h.usuario) promptCompleta += `Samuel: ${h.usuario}\n`;
+    if (h.resposta) promptCompleta += `Sexta-Feira: ${h.resposta}\n`;
+  });
+  promptCompleta += `Samuel: ${mensagemUsuario}\nSexta-Feira:`;
+
+  const response = await fetch("https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${hfKey}` },
+    body: JSON.stringify({
+      inputs: promptCompleta,
+      parameters: { max_new_tokens: 300, temperature: 0.7, return_full_text: false }
+    })
+  });
+
+  const data = await response.json();
+  let textoGerado = "";
+  if (response.ok && Array.isArray(data) && data[0]?.generated_text) {
+    textoGerado = data[0].generated_text.trim();
+  } else if (data.generated_text) {
+    textoGerado = data.generated_text.trim();
+  }
+
+  if (!textoGerado) throw new Error("Hugging Face retornou vazio");
+  return textoGerado;
+}
+
+// 2. GROQ (Backup 1)
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave Groq não configurada");
 
   let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
-  
-  // Injeta o histórico real do MongoDB na memória da IA
   historicoAnterior.forEach(h => {
     if (h.usuario) messages.push({ role: "user", content: h.usuario });
     if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
   });
-
-  // Adiciona a mensagem atual do usuário
   messages.push({ role: "user", content: mensagemUsuario });
 
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
-    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.3 })
+    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.7 })
   });
 
   const data = await response.json();
@@ -74,7 +100,7 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 2. GEMINI 1.5 FLASH (Backup)
+// 3. GEMINI 1.5 FLASH (Backup 2)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave Gemini não configurada");
@@ -95,7 +121,7 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SISTEMA_IDENTIDADE }] },
       contents: contents,
-      generationConfig: { temperature: 0.3 }
+      generationConfig: { temperature: 0.7 }
     })
   });
 
@@ -146,7 +172,7 @@ app.post('/reconhecer', async (req, res) => {
       nomeReconhecido = respostaApi1.data.name || 'Samuel';
     } catch (e) {}
 
-    const textoResposta = `Reconhecimento concluído. Identificado: ${nomeReconhecido}.`;
+    const textoResposta = `Opa, Samuel! Reconhecimento facial concluído com sucesso.`;
     let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
 
     return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, audio: audioBase64 });
@@ -169,33 +195,36 @@ async function processarChatUniversal(req, res) {
       mensagemUsuario = req.query.mensagem || req.query.text || "";
     }
     if (typeof mensagemUsuario === 'object') mensagemUsuario = JSON.stringify(mensagemUsuario);
-    mensagemUsuario = (mensagemUsuario || "Oi, Sexta-Feira").trim();
+    mensagemUsuario = (mensagemUsuario || "Oi").trim();
 
-    // 1. Busca o histórico salvo no MongoDB
     const historicoRecente = await buscarHistoricoRecente();
     let textoResposta = "";
     let provedorUsado = "";
 
-    // 2. Executa a IA enviando o histórico junto para manter a continuidade
+    // ORDEM DE REDUNDÂNCIA AUTOMÁTICA: Hugging Face -> Groq -> Gemini
     const ordemExecucao = [
+      { nome: "HuggingFace", funcao: () => chamarHuggingFace(mensagemUsuario, historicoRecente) },
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
       { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) }
     ];
 
     for (const item of ordemExecucao) {
       try {
+        console.br = true;
+        console.log(`Tentando processar via ${item.nome}...`);
         textoResposta = await item.funcao();
-        if (textoResposta) {
+        if (textoResposta && textoResposta.trim() !== "") {
           provedorUsado = item.nome;
+          console.log(`Sucesso! Resposta gerada via: ${item.nome}`);
           break;
         }
       } catch (errApi) {
-        console.log(`${item.nome} falhou: ${errApi.message}`);
+        console.log(`${item.nome} falhou: ${errApi.message}. Tentando próxima API...`);
       }
     }
 
     if (!textoResposta) {
-      textoResposta = "Samuel, repita a pergunta por favor.";
+      textoResposta = "Oi Samuel! Estou aqui com você. Pode falar, do que precisa?";
       provedorUsado = "Sistema";
     }
 
@@ -203,7 +232,6 @@ async function processarChatUniversal(req, res) {
     let audioBase64 = "";
     try { audioBase64 = await gerarAudioEdgeTTS(textoLimpoFinal); } catch (e) {}
 
-    // 3. Salva a nova interação no MongoDB para alimentar as próximas conversas
     if (dbColecao) {
       try {
         await dbColecao.insertOne({ data: new Date(), usuario: mensagemUsuario, resposta: textoLimpoFinal, provedor: provedorUsado });
@@ -212,7 +240,7 @@ async function processarChatUniversal(req, res) {
 
     return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
   } catch (error) {
-    return res.json({ resposta: `Erro interno: ${error.message}`, reply: `Erro interno: ${error.message}`, text: `Erro interno: ${error.message}` });
+    return res.json({ resposta: "Opa Samuel, deu um pequeno aqui no servidor. Me mande de novo por favor?", reply: "Opa Samuel, deu um pequeno aqui no servidor. Me mande de novo por favor?", text: "Opa Samuel, deu um pequeno aqui no servidor. Me mande de novo por favor?" });
   }
 }
 
