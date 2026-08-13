@@ -34,7 +34,7 @@ async function buscarHistoricoRecente() {
   } catch (erro) { return []; }
 }
 
-// Resposta inteligente local (Nosso Salva-Vidas que funcionou!)
+// Resposta inteligente local (Nosso Salva-Vidas)
 function gerarRespostaLocal(mensagem) {
   const msg = (mensagem || "").toLowerCase();
   if (msg.includes("oi") || msg.includes("olá") || msg.includes("tudo bem")) {
@@ -46,12 +46,13 @@ function gerarRespostaLocal(mensagem) {
   return `Samuel, recebi sua mensagem. As redes principais deram uma travadinha rápida por limite de uso, mas estou por aqui com você! O que manda?`;
 }
 
-// 1. GEMINI (Atualizado para a geração gemini-2.0-flash)
+// 1. GEMINI (Atualizado para a versão 3.5 solicitada)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave GEMINI_API_KEY não encontrada.");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`;
+  // Mudança aqui: gemini-3.5-flash
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
   const contents = [];
   
   historicoAnterior.forEach(h => {
