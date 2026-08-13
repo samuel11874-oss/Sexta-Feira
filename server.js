@@ -35,41 +35,15 @@ async function buscarHistoricoRecente() {
 }
 
 // ==========================================
-// FUNÇÕES DE COMUNICAÇÃO COM RASTREIO DE ERROS
+// FUNÇÕES DE COMUNICAÇÃO ATUALIZADAS
 // ==========================================
 
-// 1. GROQ
-async function chamarGroq(mensagemUsuario, historicoAnterior) {
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) throw new Error("Chave GROQ_API_KEY não encontrada nas variáveis de ambiente do Render.");
-
-  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
-  historicoAnterior.forEach(h => {
-    if (h.usuario) messages.push({ role: "user", content: h.usuario });
-    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
-  });
-  messages.push({ role: "user", content: mensagemUsuario });
-
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
-    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.7 })
-  });
-
-  const data = await response.json();
-  if (response.ok && data.choices?.[0]?.message?.content) {
-    return data.choices[0].message.content;
-  } else {
-    throw new Error(`[GROQ API ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
-  }
-}
-
-// 2. GEMINI (Corrigido para o endpoint v1beta com gemini-1.5-flash)
+// 1. GEMINI (Atualizado para gemini-1.5-flash-latest)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) throw new Error("Chave GEMINI_API_KEY não encontrada nas variáveis de ambiente do Render.");
+  if (!geminiKey) throw new Error("Chave GEMINI_API_KEY não encontrada.");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiKey}`;
   const contents = [];
   
   historicoAnterior.forEach(h => {
@@ -97,10 +71,10 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 3. HUGGING FACE
-async function chamarHuggingFace(mensagemUsuario, historicoAnterior) {
-  const hfKey = process.env.HUGGINGFACE_API_KEY;
-  if (!hfKey) throw new Error("Chave HUGGINGFACE_API_KEY não encontrada nas variáveis de ambiente do Render.");
+// 2. GROQ (Backup)
+async function chamarGroq(mensagemUsuario, historicoAnterior) {
+  const groqKey = process.env.GROQ_API_KEY;
+  if (!groqKey) throw new Error("Chave GROQ_API_KEY não encontrada.");
 
   let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
   historicoAnterior.forEach(h => {
@@ -109,23 +83,30 @@ async function chamarHuggingFace(mensagemUsuario, historicoAnterior) {
   });
   messages.push({ role: "user", content: mensagemUsuario });
 
-  const response = await fetch("https://api-inference.huggingface.co/v1/chat/completions", {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${hfKey}` },
-    body: JSON.stringify({
-      model: "meta-llama/Meta-Llama-3-8B-Instruct",
-      messages: messages,
-      max_tokens: 300,
-      temperature: 0.7
-    })
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
+    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.7 })
   });
 
   const data = await response.json();
   if (response.ok && data.choices?.[0]?.message?.content) {
     return data.choices[0].message.content;
   } else {
-    throw new Error(`[HUGGINGFACE API ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
+    throw new Error(`[GROQ API ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
   }
+}
+
+// Resposta inteligente local caso as APIs externas falhem
+function gerarRespostaLocal(mensagem) {
+  const msg = mensagem.toLowerCase();
+  if (msg.includes("oi") || msg.includes("olá") || msg.includes("tudo bem")) {
+    return "Opa, Samuel! Tudo ótimo por aqui com os sistemas. Como estão as coisas por aí?";
+  }
+  if (msg.includes("trabalho") || msg.includes("corrida")) {
+    return "Força aí nos corres e nas corridas, Samuel! Estou torcendo sempre pelo seu dia produtivo.";
+  }
+  return `Samuel, recebi sua mensagem ("${mensagem}"). As redes principais deram uma travadinha rápida, mas estou por aqui com você! O que manda?`;
 }
 
 async function gerarAudioEdgeTTS(texto) {
@@ -192,17 +173,17 @@ async function processarChatUniversal(req, res) {
     mensagemUsuario = (mensagemUsuario || "Oi").trim();
 
     console.log(`\n========================================`);
-    console.log(`[RASTREIO] Nova mensagem recebida: "${mensagemUsuario}"`);
+    console.log(`[RASTREIO] Nova mensagem: "${mensagemUsuario}"`);
     console.log(`========================================`);
 
     const historicoRecente = await buscarHistoricoRecente();
     let textoResposta = "";
     let provedorUsado = "";
 
+    // ORDEM OTIMIZADA: Gemini -> Groq -> Fallback Local Inteligente
     const ordemExecucao = [
-      { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
       { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
-      { nome: "HuggingFace", funcao: () => chamarHuggingFace(mensagemUsuario, historicoRecente) }
+      { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) }
     ];
 
     for (const item of ordemExecucao) {
@@ -211,19 +192,18 @@ async function processarChatUniversal(req, res) {
         textoResposta = await item.funcao();
         if (textoResposta && textoResposta.trim() !== "") {
           provedorUsado = item.nome;
-          console.log(`[RASTREIO] SUCESSO! Resposta gerada com sucesso via: ${item.nome}`);
+          console.log(`[RASTREIO] SUCESSO via: ${item.nome}`);
           break;
         }
       } catch (errApi) {
-        console.error(`[RASTREIO FALHA] Provedor ${item.nome} falhou.`);
-        console.error(`Detalhe do erro:`, errApi.message);
+        console.error(`[RASTREIO FALHA] ${item.nome} falhou:`, errApi.message);
       }
     }
 
     if (!textoResposta) {
-      console.warn(`[RASTREIO AVISO] Todos os provedores falharam. Acionando resposta padrão.`);
-      textoResposta = "Oi Samuel! Estou aqui com você. Pode falar, do que precisa?";
-      provedorUsado = "Sistema-Fallback";
+      console.warn(`[RASTREIO AVISO] Usando gerador de resposta local inteligente.`);
+      textoResposta = geradorRespostaLocal(mensagemUsuario);
+      provedorUsado = "Sistema-Local";
     }
 
     let textoLimpoFinal = textoResposta.replace(/[*_#`]/g, '');
