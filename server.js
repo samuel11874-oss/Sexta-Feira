@@ -34,7 +34,7 @@ async function buscarHistoricoRecente() {
   } catch (erro) { return []; }
 }
 
-// Resposta inteligente local definida corretamente
+// Resposta inteligente local (CORRIGIDA)
 function gerarRespostaLocal(mensagem) {
   const msg = (mensagem || "").toLowerCase();
   if (msg.includes("oi") || msg.includes("olá") || msg.includes("tudo bem")) {
@@ -43,15 +43,15 @@ function gerarRespostaLocal(mensagem) {
   if (msg.includes("trabalho") || msg.includes("corrida")) {
     return "Força aí nos corres e nas corridas, Samuel! Estou torcendo sempre pelo seu dia produtivo.";
   }
-  return `Samuel, recebi sua mensagem. As redes principais deram uma travadinha rápida, mas estou por aqui com você! O que manda?`;
+  return `Samuel, recebi sua mensagem. As redes principais deram uma travadinha rápida por limite de uso, mas estou por aqui com você! O que manda?`;
 }
 
-// 1. GEMINI (Corrigido para gemini-1.5-flash)
+// 1. GEMINI (Atualizado para gemini-1.5-pro para evitar erro 404)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave GEMINI_API_KEY não encontrada.");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${geminiKey}`;
   const contents = [];
   
   historicoAnterior.forEach(h => {
@@ -197,7 +197,7 @@ async function processarChatUniversal(req, res) {
 
     if (!textoResposta) {
       console.warn(`[RASTREIO AVISO] Usando gerador de resposta local inteligente.`);
-      textoResposta = geradorRespostaLocal(mensagemUsuario);
+      textoResposta = gerarRespostaLocal(mensagemUsuario); // <-- NOME CORRIGIDO AQUI
       provedorUsado = "Sistema-Local";
     }
 
