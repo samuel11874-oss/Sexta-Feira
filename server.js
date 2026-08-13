@@ -4,18 +4,18 @@ const axios = require('axios');
 
 const app = express();
 
-// Middlewares para capturar qualquer tipo de envio vindo do aplicativo
+// IMPORTANTE: Captura Texto Puro ANTES de tentar converter para JSON
+// Isso resolve o problema de envio do App Inventor / Kodular
+app.use(express.text({ type: '*/*', limit: '10mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(express.text({ type: '*/*', limit: '10mb' }));
 
-// --- IDENTIDADE E DIRETRIZES DA SEXTA-FEIRA ---
-const SISTEMA_IDENTIDADE = `Você é a Sexta-Feira, assistente pessoal de inteligência artificial do Samuel.
-- Responda SEMPRE de forma direta, clara, objetiva e inteligente à pergunta exata que o Samuel fizer.
+// --- IDENTIDADE DA SEXTA-FEIRA ---
+const SISTEMA_IDENTIDADE = `Você é a Sexta-Feira, assistente pessoal e parceira do Samuel.
+- Responda SEMPRE de forma direta, inteligente, clara e elegante.
 - Se ele perguntar 'quem é você', apresente-se como Sexta-Feira, sua assistente virtual.
-- Se ele perguntar 'que dia é hoje' ou fizer outra pergunta factual, responda com precisão.
-- NUNCA responda com saudações genéricas se o Samuel fez uma pergunta específica.
-- NUNCA invente histórias, bloqueios simulados ou contadores de mensagens.`;
+- Responda com precisão e objetividade à pergunta exata que o Samuel fizer.
+- NUNCA invente histórias, bloqueios simulados, efeitos sonoros ou contadores de mensagem.`;
 
 // ==========================================
 // 1. BANCO DE DADOS (MongoDB Atlas)
@@ -54,31 +54,37 @@ async function limparMemoriaBanco() {
 }
 
 // ==========================================
-// 2. FUNÇÃO EXTRAÇÃO DE TEXTO DO APP
+// 2. EXTRATOR ULTRA-RESISTENTE DE TEXTO DO APP
 // ==========================================
 function extrairTextoDoRequest(req) {
-  let texto = "";
+  if (!req.body && !req.query) return "";
 
-  // 1. Tenta extrair de Query String (URL)
-  if (req.query && (req.query.mensagem || req.query.text || req.query.q || req.query.msg)) {
-    texto = req.query.mensagem || req.query.text || req.query.q || req.query.msg;
-  }
-  // 2. Tenta extrair se req.body for Objeto
-  else if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
-    texto = req.body.mensagem || req.body.message || req.body.text || req.body.query || req.body.msg || Object.values(req.body)[0];
-  }
-  // 3. Tenta extrair se req.body for String (Texto Puro ou JSON String)
-  else if (typeof req.body === 'string' && req.body.trim() !== '') {
+  // 1. Se o App Inventor enviou Texto Puro (String)
+  if (typeof req.body === 'string') {
+    const textoLimpo = req.body.trim();
+    if (!textoLimpo) return "";
+    
+    // Tenta ver se a string é um JSON oculto
     try {
-      const parsed = JSON.parse(req.body);
-      texto = parsed.mensagem || parsed.message || parsed.text || parsed.query || parsed.msg || Object.values(parsed)[0];
+      const parsed = JSON.parse(textoLimpo);
+      return parsed.mensagem || parsed.message || parsed.text || parsed.query || parsed.msg || Object.values(parsed)[0] || textoLimpo;
     } catch (e) {
-      texto = req.body;
+      // Se não for JSON, é o próprio texto digitado ("teste", "quem e você", etc)
+      return textoLimpo;
     }
   }
 
-  if (typeof texto === 'object') texto = JSON.stringify(texto);
-  return String(texto || "").trim();
+  // 2. Se req.body for Objeto JSON
+  if (req.body && typeof req.body === 'object') {
+    return req.body.mensagem || req.body.message || req.body.text || req.body.query || req.body.msg || Object.values(req.body)[0] || "";
+  }
+
+  // 3. Se veio via URL (Query String)
+  if (req.query) {
+    return req.query.mensagem || req.query.text || req.query.q || req.query.msg || Object.values(req.query)[0] || "";
+  }
+
+  return "";
 }
 
 // ==========================================
@@ -168,7 +174,7 @@ async function chamarMistral(mensagemUsuario, historicoAnterior) {
 }
 
 // ==========================================
-// 4. SÍNTESE DE VOZ (Edge TTS)
+// 4. VOZ (Edge TTS)
 // ==========================================
 async function gerarAudioEdgeTTS(texto) {
   try {
@@ -211,7 +217,7 @@ app.post('/reconhecer', async (req, res) => {
       nomeReconhecido = respostaApi1.data.name || 'Samuel';
     } catch (e) {}
 
-    const textoResposta = `Reconhecimento facial concluído. Olá Samuel, como posso ajudar?`;
+    const textoResposta = `Reconhecimento concluído. Olá Samuel, em que posso ser útil?`;
     let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
 
     return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, audio: audioBase64 });
@@ -230,22 +236,19 @@ async function processarChatUniversal(req, res) {
     const mensagemUsuario = extrairTextoDoRequest(req);
 
     console.log(`\n========================================`);
-    console.log(`[RAW BODY RECEBIDO]:`, JSON.stringify(req.body));
-    console.log(`[TEXTO EXTRAÍDO]: "${mensagemUsuario}"`);
+    console.log(`[TEXTO CAPTURADO DO APP]: "${mensagemUsuario}"`);
     console.log(`========================================`);
 
-    // ALERTA DE ERRO NO ENVIO DO APLICATIVO
     if (!mensagemUsuario) {
-      const txtAlerta = "Atenção Samuel: O seu aplicativo enviou uma mensagem vazia para o servidor. Verifique o campo de texto ou botão de envio no aplicativo.";
+      const txtAlerta = "Atenção Samuel: O campo de texto do seu aplicativo está chegando vazio no servidor. Verifique o botão de envio no aplicativo.";
       let audAlerta = await gerarAudioEdgeTTS(txtAlerta);
       return res.json({ resposta: txtAlerta, reply: txtAlerta, text: txtAlerta, audio: audAlerta });
     }
 
-    // COMANDO DE RESET MANUAL DA MEMÓRIA
     const msgBaixa = mensagemUsuario.toLowerCase();
     if (msgBaixa === "reset" || msgBaixa === "limpar" || msgBaixa === "/reset") {
       await limparMemoriaBanco();
-      const txtReset = "Memória resetada com sucesso, Samuel! Históricos antigos apagados. O que você gostaria de saber?";
+      const txtReset = "Memória resetada com sucesso, Samuel! Históricos antigos apagados. Como posso te ajudar?";
       let audReset = await gerarAudioEdgeTTS(txtReset);
       return res.json({ resposta: txtReset, reply: txtReset, text: txtReset, audio: audReset });
     }
@@ -262,7 +265,7 @@ async function processarChatUniversal(req, res) {
 
     for (const item of ordemExecucao) {
       try {
-        console.log(`[PROCESSANDO] Enviando "${mensagemUsuario}" para ${item.nome}...`);
+        console.log(`[PROCESSANDO] Pergunta: "${mensagemUsuario}" via ${item.nome}...`);
         textoResposta = await item.funcao();
         if (textoResposta && textoResposta.trim() !== "") {
           provedorUsado = item.nome;
@@ -275,7 +278,7 @@ async function processarChatUniversal(req, res) {
     }
 
     if (!textoResposta) {
-      textoResposta = "Desculpe Samuel, não consegui processar sua pergunta agora. Pode tentar novamente?";
+      textoResposta = "Desculpe Samuel, tive uma instabilidade temporária. Pode tentar novamente?";
       provedorUsado = "Sistema-Local";
     }
 
@@ -292,7 +295,7 @@ async function processarChatUniversal(req, res) {
     return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
   } catch (error) {
     console.error(`[ERRO CRÍTICO NO CHAT]:`, error.message);
-    return res.json({ resposta: "Ocorreu um erro ao processar sua pergunta no servidor.", reply: "Ocorreu um erro ao processar sua pergunta no servidor.", text: "Ocorreu um erro ao processar sua pergunta no servidor." });
+    return res.json({ resposta: "Erro no servidor ao processar sua solicitação.", reply: "Erro no servidor ao processar sua solicitação.", text: "Erro no servidor ao processar sua solicitação." });
   }
 }
 
