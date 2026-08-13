@@ -34,16 +34,24 @@ async function buscarHistoricoRecente() {
   } catch (erro) { return []; }
 }
 
-// ==========================================
-// FUNÇÕES DE COMUNICAÇÃO ATUALIZADAS
-// ==========================================
+// Resposta inteligente local definida corretamente
+function gerarRespostaLocal(mensagem) {
+  const msg = (mensagem || "").toLowerCase();
+  if (msg.includes("oi") || msg.includes("olá") || msg.includes("tudo bem")) {
+    return "Opa, Samuel! Tudo ótimo por aqui com os sistemas. Como estão as coisas por aí?";
+  }
+  if (msg.includes("trabalho") || msg.includes("corrida")) {
+    return "Força aí nos corres e nas corridas, Samuel! Estou torcendo sempre pelo seu dia produtivo.";
+  }
+  return `Samuel, recebi sua mensagem. As redes principais deram uma travadinha rápida, mas estou por aqui com você! O que manda?`;
+}
 
-// 1. GEMINI (Atualizado para gemini-1.5-flash-latest)
+// 1. GEMINI (Corrigido para gemini-1.5-flash)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave GEMINI_API_KEY não encontrada.");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
   const contents = [];
   
   historicoAnterior.forEach(h => {
@@ -71,7 +79,7 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 2. GROQ (Backup)
+// 2. GROQ
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave GROQ_API_KEY não encontrada.");
@@ -95,18 +103,6 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   } else {
     throw new Error(`[GROQ API ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
   }
-}
-
-// Resposta inteligente local caso as APIs externas falhem
-function gerarRespostaLocal(mensagem) {
-  const msg = mensagem.toLowerCase();
-  if (msg.includes("oi") || msg.includes("olá") || msg.includes("tudo bem")) {
-    return "Opa, Samuel! Tudo ótimo por aqui com os sistemas. Como estão as coisas por aí?";
-  }
-  if (msg.includes("trabalho") || msg.includes("corrida")) {
-    return "Força aí nos corres e nas corridas, Samuel! Estou torcendo sempre pelo seu dia produtivo.";
-  }
-  return `Samuel, recebi sua mensagem ("${mensagem}"). As redes principais deram uma travadinha rápida, mas estou por aqui com você! O que manda?`;
 }
 
 async function gerarAudioEdgeTTS(texto) {
@@ -180,7 +176,6 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // ORDEM OTIMIZADA: Gemini -> Groq -> Fallback Local Inteligente
     const ordemExecucao = [
       { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) }
