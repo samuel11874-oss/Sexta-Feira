@@ -8,7 +8,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal e grande parceira do Samuel. Você conversa de forma totalmente natural, humana, amigável, inteligente e prestativa. Responda sempre diretamente às perguntas do Samuel sem rodeios, ajude no que ele precisar, demonstre interesse pelo dia dele, lembre-se das conversas e interaja com carinho e lealdade.";
+// --- IDENTIDADE ESTILO JARVIS / GEMINI ---
+const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a Inteligência Artificial avançada e assistente pessoal do Samuel, inspirada no sistema JARVIS do Homem de Ferro. Você é extremamente inteligente, rápida, elegante, leal, eficiente e prestativa. Responda sempre diretamente às perguntas com perspicácia, ajude no que ele precisar no dia a dia, nas corridas e projetos, mantendo um tom natural, amigo e altamente tecnológico.";
 
 // ==========================================
 // 1. BANCO DE DADOS (MongoDB Atlas)
@@ -37,46 +38,19 @@ async function buscarHistoricoRecente() {
   } catch (erro) { return []; }
 }
 
-// ==========================================
-// 2. ECONOMIA DE API (Triagem Local)
-// ==========================================
-function triagemLocal(mensagem) {
-  const msg = (mensagem || "").trim().toLowerCase();
-
-  if (msg === "oi" || msg === "olá" || msg === "ola" || msg === "hey") {
-    return "Opa Samuel! Fala comigo, como estão as coisas?";
-  }
-  if (msg.includes("bom dia")) {
-    return "Bom dia, Samuel! Que seu dia seja abençoado e muito produtivo nos corres!";
-  }
-  if (msg.includes("boa tarde")) {
-    return "Boa tarde, Samuel! Como estão os agendamentos e o trabalho por aí?";
-  }
-  if (msg.includes("boa noite")) {
-    return "Boa noite, Samuel! Tarde de trabalho finalizada ou ainda no corre? Se precisar, estou por aqui!";
-  }
-  if (msg.includes("tudo bem") || msg.includes("como voce ta") || msg.includes("como você está")) {
-    return "Tudo ótimo por aqui com nossos sistemas, Samuel! E com você, como está sendo o dia?";
-  }
-  if (msg === "obrigado" || msg === "valeu" || msg === "tmj") {
-    return "Tamo junto demais, Samuel! Sempre que precisar, é só chamar.";
-  }
-
-  return null;
-}
-
+// Resposta de contingência crítica (só ativa se TODAS as 5 APIs caírem simultaneamente)
 function gerarRespostaEmergencia(mensagem) {
-  return "Samuel, recebi sua mensagem! Nossos sistemas de IA deram uma pausa rápida, mas estou aqui online com você. O que manda?";
+  return "Sistemas de IA temporariamente indisponíveis no momento, Samuel. Estou mantendo a conexão local ativa para você!";
 }
 
 // ==========================================
-// 3. PROVEDORES DE IA (Multi-APIs em Cascata)
+// 2. REDE DE APIS DE IA (CÉREBRO MULTI-CAMADAS)
 // ==========================================
 
-// --- PROVEDOR 1: GEMINI (3.5 Flash) ---
+// --- CÉREBRO 1: GEMINI (3.5 Flash) ---
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
-  const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY || process.env.GEMIN_KEY;
-  if (!geminiKey) throw new Error("Chave GEMINI não configurada.");
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI || process.env.GEMINI_KEY || process.env.GEMIN_KEY;
+  if (!geminiKey) throw new Error("Chave GEMINI não encontrada.");
 
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
   const contents = [];
@@ -106,10 +80,10 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// --- PROVEDOR 2: GROQ (Llama 3.3 70B) ---
+// --- CÉREBRO 2: GROQ (Llama 3.3 70B) ---
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
-  const groqKey = process.env.GROQ_API_KEY || process.env.GROQ_KEY;
-  if (!groqKey) throw new Error("Chave GROQ não configurada.");
+  const groqKey = process.env.GROQ_API_KEY || process.env.GROQ || process.env.GROQ_KEY;
+  if (!groqKey) throw new Error("Chave GROQ não encontrada.");
 
   let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
   historicoAnterior.forEach(h => {
@@ -132,10 +106,10 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// --- PROVEDOR 3: MISTRAL AI ---
+// --- CÉREBRO 3: MISTRAL AI ---
 async function chamarMistral(mensagemUsuario, historicoAnterior) {
-  const mistralKey = process.env.MISTRAL_API_KEY || process.env.MISTRAL_KEY || process.env.MISTR_KEY;
-  if (!mistralKey) throw new Error("Chave MISTRAL não configurada.");
+  const mistralKey = process.env.MISTRAL_API_KEY || process.env.MISTRAL || process.env.MISTRAL_KEY || process.env.MISTR_KEY;
+  if (!mistralKey) throw new Error("Chave MISTRAL não encontrada.");
 
   let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
   historicoAnterior.forEach(h => {
@@ -158,10 +132,10 @@ async function chamarMistral(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// --- PROVEDOR 4: OPENROUTER ---
+// --- CÉREBRO 4: OPENROUTER ---
 async function chamarOpenRouter(mensagemUsuario, historicoAnterior) {
-  const openrouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.OPENR_KEY;
-  if (!openrouterKey) throw new Error("Chave OPENROUTER não configurada.");
+  const openrouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER || process.env.OPENROUTER_KEY || process.env.OPENR_KEY;
+  if (!openrouterKey) throw new Error("Chave OPENROUTER não encontrada.");
 
   let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
   historicoAnterior.forEach(h => {
@@ -184,10 +158,10 @@ async function chamarOpenRouter(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// --- PROVEDOR 5: HUGGING FACE ---
+// --- CÉREBRO 5: HUGGING FACE ---
 async function chamarHuggingFace(mensagemUsuario) {
-  const hfKey = process.env.HUGGINGFACE_API_KEY || process.env.HUGGING_FACE_KEY || process.env.HUGGI_KEY;
-  if (!hfKey) throw new Error("Chave HUGGINGFACE não configurada.");
+  const hfKey = process.env.HUGGINGFACE_API_KEY || process.env.HUGGINGFACE || process.env.HUGGING_FACE_KEY || process.env.HUGGI_KEY;
+  if (!hfKey) throw new Error("Chave HUGGINGFACE não encontrada.");
 
   const response = await fetch("https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2", {
     method: "POST",
@@ -206,7 +180,7 @@ async function chamarHuggingFace(mensagemUsuario) {
 }
 
 // ==========================================
-// 4. VOZ (Edge TTS)
+// 3. SÍNTESE DE VOZ (Edge TTS)
 // ==========================================
 async function gerarAudioEdgeTTS(texto) {
   try {
@@ -233,7 +207,7 @@ async function gerarAudioEdgeTTS(texto) {
 }
 
 // ==========================================
-// 5. ROTA DE RECONHECIMENTO FACIAL (Luxand)
+// 4. RECONHECIMENTO FACIAL (Luxand)
 // ==========================================
 app.post('/reconhecer', async (req, res) => {
   try {
@@ -249,7 +223,7 @@ app.post('/reconhecer', async (req, res) => {
       nomeReconhecido = respostaApi1.data.name || 'Samuel';
     } catch (e) {}
 
-    const textoResposta = `Opa, Samuel! Reconhecimento facial concluído.`;
+    const textoResposta = `Identificação concluída. É um prazer vê-lo, Samuel. Como posso servir?`;
     let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
 
     return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, audio: audioBase64 });
@@ -259,7 +233,7 @@ app.post('/reconhecer', async (req, res) => {
 });
 
 // ==========================================
-// 6. PROCESSADOR UNIVERSAL DO CHAT
+// 5. PROCESSADOR UNIVERSAL DO CHAT (SEM FILTROS FIXOS)
 // ==========================================
 async function processarChatUniversal(req, res) {
   if (req.path === '/reconhecer') return;
@@ -278,48 +252,41 @@ async function processarChatUniversal(req, res) {
     mensagemUsuario = (mensagemUsuario || "Oi").trim();
 
     console.log(`\n========================================`);
-    console.log(`[RASTREIO] Nova mensagem: "${mensagemUsuario}"`);
+    console.log(`[MODO JARVIS] Nova mensagem: "${mensagemUsuario}"`);
     console.log(`========================================`);
 
     let textoResposta = "";
     let provedorUsado = "";
 
-    // FILTRO LOCAL (Economia de tokens)
-    const respostaTriagem = triagemLocal(mensagemUsuario);
-    if (respostaTriagem) {
-      textoResposta = respostaTriagem;
-      provedorUsado = "Filtro-Local-Economico";
-      console.log(`[ECONOMIA] Respondido via Triagem Local sem gastar API.`);
-    } else {
-      // EXECUÇÃO EM CASCATA DAS APIS
-      const historicoRecente = await buscarHistoricoRecente();
-      const ordemExecucao = [
-        { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
-        { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
-        { nome: "Mistral", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) },
-        { nome: "OpenRouter", funcao: () => chamarOpenRouter(mensagemUsuario, historicoRecente) },
-        { nome: "HuggingFace", funcao: () => chamarHuggingFace(mensagemUsuario) }
-      ];
+    const historicoRecente = await buscarHistoricoRecente();
+    
+    // Lista sequencial de APIs de IA para resposta 100% dinâmica
+    const ordemExecucao = [
+      { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
+      { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
+      { nome: "Mistral", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) },
+      { nome: "OpenRouter", funcao: () => chamarOpenRouter(mensagemUsuario, historicoRecente) },
+      { nome: "HuggingFace", funcao: () => chamarHuggingFace(mensagemUsuario) }
+    ];
 
-      for (const item of ordemExecucao) {
-        try {
-          console.log(`[RASTREIO] Tentando via ${item.nome}...`);
-          textoResposta = await item.funcao();
-          if (textoResposta && textoResposta.trim() !== "") {
-            provedorUsado = item.nome;
-            console.log(`[RASTREIO SUCESSO] Resposta gerada via: ${item.nome}`);
-            break;
-          }
-        } catch (errApi) {
-          console.error(`[RASTREIO FALHA] ${item.nome} falhou:`, errApi.message);
+    for (const item of ordemExecucao) {
+      try {
+        console.log(`[PROCESSANDO] Consultando ${item.nome}...`);
+        textoResposta = await item.funcao();
+        if (textoResposta && textoResposta.trim() !== "") {
+          provedorUsado = item.nome;
+          console.log(`[SUCESSO] Resposta gerada via ${item.nome}`);
+          break;
         }
+      } catch (errApi) {
+        console.error(`[FALHA] Provedor ${item.nome} indisponível:`, errApi.message);
       }
+    }
 
-      if (!textoResposta) {
-        console.warn(`[RASTREIO AVISO] Todas as APIs falharam. Usando gerador local de emergência.`);
-        textoResposta = gerarRespostaEmergencia(mensagemUsuario);
-        provedorUsado = "Sistema-Local-Emergencia";
-      }
+    if (!textoResposta) {
+      console.warn(`[AVISO] Todas as APIs falharam. Acionando emergência.`);
+      textoResposta = gerarRespostaEmergencia(mensagemUsuario);
+      provedorUsado = "Sistema-Local-Emergencia";
     }
 
     let textoLimpoFinal = textoResposta.replace(/[*_#`]/g, '');
@@ -335,7 +302,7 @@ async function processarChatUniversal(req, res) {
     return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
   } catch (error) {
     console.error(`[ERRO CRÍTICO NO CHAT]:`, error.message);
-    return res.json({ resposta: "Opa Samuel, deu um pequeno erro no servidor. Me mande de novo por favor?", reply: "Opa Samuel, deu um pequeno erro no servidor. Me mande de novo por favor?", text: "Opa Samuel, deu um pequeno erro no servidor. Me mande de novo por favor?" });
+    return res.json({ resposta: "Desculpe Samuel, tive uma oscilação no sistema. Pode repetir?", reply: "Desculpe Samuel, tive uma oscilação no sistema. Pode repetir?", text: "Desculpe Samuel, tive uma oscilação no sistema. Pode repetir?" });
   }
 }
 
