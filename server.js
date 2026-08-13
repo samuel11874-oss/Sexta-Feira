@@ -4,35 +4,56 @@ const axios = require('axios');
 
 const app = express();
 
+// ==========================================
+// 1. REGRA DE SEGURANÇA (CORS) NO TOPO ABSOLUTO
+// Libera o Spck Editor / Navegador para conectar
+// ==========================================
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Parsers para ler os dados enviados pelo aplicativo
 app.use(express.text({ type: '*/*', limit: '10mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ==========================================
-// 1. INFORMAÇÕES PESSOAIS E PERFIL DO SAMUEL
+// 2. PERFIL E IDENTIDADE DA SEXTA-FEIRA
 // ==========================================
-// Adicione ou edite aqui todas as informações que você quer que a Sexta-Feira saiba!
 const PERFIL_SAMUEL = `
 [DADOS E PERFIL DO USUÁRIO - SAMUEL]
 - Nome Completo: Samuel da Silva Pereira.
-- Papel do Usuário: Você é a assistente pessoal dedicada e de confiança do Samuel.
-- Conhecimento Geral: Você conhece a rotina do Samuel, seus objetivos financeiros, seus projetos de automação, sua família e suas preferências.
-- Comportamento com o Samuel: Responda de forma próxima, altamente inteligente, direta e leal. Nunca diga que tem 'acesso limitado' ou que 'é apenas uma IA sem dados'. Trate-se como a assistente pessoal dele integrada ao sistema.
+- Papel do Usuário: Você é a assistente pessoal dedicada, inteligente e de total confiança do Samuel.
+- Conhecimento Geral: Você conhece a rotina do Samuel, seus projetos de automação, sua família e suas preferências.
+- Comportamento: Responda de forma próxima, altamente inteligente, direta e leal. Nunca diga que tem 'acesso limitado' ou que 'é apenas uma IA sem dados'. Trate-se como a assistente pessoal dele integrada ao sistema dele.
 `;
 
-// --- IDENTIDADE E REGRAS DA SEXTA-FEIRA ---
-const SISTEMA_IDENTIDADE = `Você é a Sexta-Feira, assistente pessoal e inteligência artificial exclusiva do Samuel.
+const IDENTIDADE_PADRAO = `Você é a Sexta-Feira, assistente pessoal e inteligência artificial exclusiva do Samuel.
 
 ${PERFIL_SAMUEL}
 
 [DIRETRIZES DE RESPOSTA]
 1. Responda SEMPRE de forma direta, clara, objetiva e inteligente à pergunta exata do Samuel.
-2. NUNCA diga 'tenho acesso limitado às suas informações' ou 'sou apenas uma IA sem acesso a dados externos'. Você é a assistente pessoal dele e possui a memória e perfil dele integrados.
-3. Se ele perguntar 'o que você sabe sobre mim', use as informações do perfil dele e a memória recente para responder com propriedade.
-4. Se faltar alguma informação específica que ele perguntou, responda com o que sabe e pergunte naturalmente como ele gostaria de registrar essa nova informação.`;
+2. NUNCA diga 'tenho acesso limitado às suas informações'. Você é a assistente pessoal dele.
+3. Se ele perguntar 'o que você sabe sobre mim', use as informações do perfil dele e a memória para responder.`;
+
+const IDENTIDADE_LIVE = `Você é a Sexta-Feira no MODO LIVE com o Samuel.
+
+${PERFIL_SAMUEL}
+
+[DIRETRIZES DO MODO LIVE]
+1. Responda como se estivesse em uma LIGAÇÃO TELEFÔNICA em tempo real.
+2. Seja extremamente concisa, natural e fluida (respostas curtas de no máximo 1 a 3 frases).
+3. NUNCA use tópicos, listas, símbolos de formatação (como markdown *, #) ou respostas longas.`;
 
 // ==========================================
-// 2. BANCO DE DADOS (MongoDB Atlas)
+// 3. BANCO DE DADOS (MongoDB Atlas)
 // ==========================================
 const mongoUri = process.env.MONGO_URI;
 let dbColecao = null;
@@ -55,7 +76,7 @@ async function buscarHistoricoLimpo() {
   try {
     const historico = await dbColecao.find({}).sort({ _id: -1 }).limit(6).toArray();
     return historico.reverse().filter(h => h.usuario && h.resposta);
-  } catch (erro) { return []; }
+  } catch (e) { return []; }
 }
 
 async function limparMemoriaBanco() {
@@ -68,7 +89,7 @@ async function limparMemoriaBanco() {
 }
 
 // ==========================================
-// 3. EXTRATOR DE TEXTO DO APP
+// 4. EXTRATOR UNIVERSAL DE TEXTO
 // ==========================================
 function extrairTextoDoRequest(req) {
   if (!req.body && !req.query) return "";
@@ -96,10 +117,9 @@ function extrairTextoDoRequest(req) {
 }
 
 // ==========================================
-// 4. APIS DE IA (Gemini / Groq / Mistral)
+// 5. APIS DE IA (Gemini / Groq / Mistral)
 // ==========================================
-
-async function chamarGemini(mensagemUsuario, historicoAnterior) {
+async function chamarGemini(mensagemUsuario, historicoAnterior, sistemaPrompt) {
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI || process.env.GEMINI_KEY;
   if (!geminiKey) throw new Error("Chave GEMINI não encontrada.");
 
@@ -117,9 +137,9 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: SISTEMA_IDENTIDADE }] },
+      system_instruction: { parts: [{ text: sistemaPrompt }] },
       contents: contents,
-      generationConfig: { temperature: 0.2 }
+      generationConfig: { temperature: 0.3 }
     })
   });
 
@@ -131,11 +151,11 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
   }
 }
 
-async function chamarGroq(mensagemUsuario, historicoAnterior) {
+async function chamarGroq(mensagemUsuario, historicoAnterior, sistemaPrompt) {
   const groqKey = process.env.GROQ_API_KEY || process.env.GROQ || process.env.GROQ_KEY;
   if (!groqKey) throw new Error("Chave GROQ não encontrada.");
 
-  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  let messages = [{ role: "system", content: sistemaPrompt }];
   historicoAnterior.forEach(h => {
     if (h.usuario) messages.push({ role: "user", content: h.usuario });
     if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
@@ -145,7 +165,7 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
-    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.2 })
+    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.3 })
   });
 
   const data = await response.json();
@@ -156,11 +176,11 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   }
 }
 
-async function chamarMistral(mensagemUsuario, historicoAnterior) {
+async function chamarMistral(mensagemUsuario, historicoAnterior, sistemaPrompt) {
   const mistralKey = process.env.MISTRAL_API_KEY || process.env.MISTRAL || process.env.MISTRAL_KEY;
   if (!mistralKey) throw new Error("Chave MISTRAL não encontrada.");
 
-  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  let messages = [{ role: "system", content: sistemaPrompt }];
   historicoAnterior.forEach(h => {
     if (h.usuario) messages.push({ role: "user", content: h.usuario });
     if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
@@ -170,7 +190,7 @@ async function chamarMistral(mensagemUsuario, historicoAnterior) {
   const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
-    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.2 })
+    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.3 })
   });
 
   const data = await response.json();
@@ -182,7 +202,7 @@ async function chamarMistral(mensagemUsuario, historicoAnterior) {
 }
 
 // ==========================================
-// 5. VOZ (Edge TTS)
+// 6. SÍNTESE DE VOZ (Edge TTS)
 // ==========================================
 async function gerarAudioEdgeTTS(texto) {
   try {
@@ -192,7 +212,7 @@ async function gerarAudioEdgeTTS(texto) {
     
     const body = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="pt-BR">
                     <voice name="${voice}">
-                      <prosody rate="1.0" pitch="0%">${textoLimpo}</prosody>
+                      <prosody rate="1.05" pitch="0%">${textoLimpo}</prosody>
                     </voice>
                   </speak>`;
 
@@ -209,7 +229,33 @@ async function gerarAudioEdgeTTS(texto) {
 }
 
 // ==========================================
-// 6. PROCESSADOR CHAT UNIVERSAL
+// 7. RECONHECIMENTO FACIAL
+// ==========================================
+app.post('/reconhecer', async (req, res) => {
+  try {
+    const { imagemBase64 } = req.body || {};
+    if (!imagemBase64) return res.status(400).json({ sucesso: false, mensagem: "Nenhuma imagem enviada." });
+
+    const API_1_URL = process.env.API_1_URL || 'https://api.luxand.cloud/photo/v2';
+    const API_1_KEY = process.env.API_1_KEY || process.env.API_1_TOKEN || '';
+
+    let nomeReconhecido = "Samuel";
+    try {
+      const respostaApi1 = await axios.post(API_1_URL, { image: imagemBase64 }, { headers: { 'token': API_1_KEY } });
+      nomeReconhecido = respostaApi1.data.name || 'Samuel';
+    } catch (e) {}
+
+    const textoResposta = `Reconhecimento concluído. Olá Samuel, como posso te ajudar agora?`;
+    let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
+
+    return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, audio: audioBase64 });
+  } catch (error) {
+    return res.status(500).json({ sucesso: false, erro: error.message });
+  }
+});
+
+// ==========================================
+// 8. PROCESSADOR CHAT UNIVERSAL & MODO LIVE
 // ==========================================
 async function processarChatUniversal(req, res) {
   if (req.path === '/reconhecer') return;
@@ -218,27 +264,48 @@ async function processarChatUniversal(req, res) {
     const mensagemUsuario = extrairTextoDoRequest(req);
 
     if (!mensagemUsuario) {
-      const txtAlerta = "Atenção Samuel: O campo de texto do seu aplicativo está chegando vazio no servidor.";
+      const txtAlerta = "Atenção Samuel: A mensagem chegou vazia ao servidor.";
       let audAlerta = await gerarAudioEdgeTTS(txtAlerta);
       return res.json({ resposta: txtAlerta, reply: txtAlerta, text: txtAlerta, audio: audAlerta });
     }
 
-    const msgBaixa = mensagemUsuario.toLowerCase();
+    const msgBaixa = mensagemUsuario.toLowerCase().trim();
+
+    // COMANDO RESET DA MEMÓRIA
     if (msgBaixa === "reset" || msgBaixa === "limpar" || msgBaixa === "/reset") {
       await limparMemoriaBanco();
-      const txtReset = "Memória recente limpa com sucesso, Samuel! Como posso te ajudar agora?";
+      const txtReset = "Memória recente resetada com sucesso, Samuel!";
       let audReset = await gerarAudioEdgeTTS(txtReset);
       return res.json({ resposta: txtReset, reply: txtReset, text: txtReset, audio: audReset });
     }
 
+    // CONTROLE DE MODO LIVE
+    let eModoLive = req.body?.modoLive === true || req.query?.modoLive === 'true';
+
+    if (msgBaixa.includes("ativar modo live") || msgBaixa.includes("modo live ativar")) {
+      eModoLive = true;
+      const txtLive = "Modo Live ativado, Samuel! Pode falar, estou te ouvindo.";
+      const audLive = await gerarAudioEdgeTTS(txtLive);
+      return res.json({ resposta: txtLive, reply: txtLive, audio: audLive, modoLive: true });
+    }
+
+    if (msgBaixa.includes("desativar modo live") || msgBaixa.includes("parar modo live") || msgBaixa.includes("desligar modo live")) {
+      const txtSair = "Modo Live desativado. Voltei ao modo padrão.";
+      const audSair = await gerarAudioEdgeTTS(txtSair);
+      return res.json({ resposta: txtSair, reply: txtSair, audio: audSair, modoLive: false });
+    }
+
+    // PROCESSAR RESPOSTA COM AS IAs
+    const historicoLimpo = await buscarHistoricoLimpo();
+    const promptUsado = eModoLive ? IDENTIDADE_LIVE : IDENTIDADE_PADRAO;
+
     let textoResposta = "";
     let provedorUsado = "";
-    const historicoLimpo = await buscarHistoricoLimpo();
-    
+
     const ordemExecucao = [
-      { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoLimpo) },
-      { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoLimpo) },
-      { nome: "Mistral", funcao: () => chamarMistral(mensagemUsuario, historicoLimpo) }
+      { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoLimpo, promptUsado) },
+      { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoLimpo, promptUsado) },
+      { nome: "Mistral", funcao: () => chamarMistral(mensagemUsuario, historicoLimpo, promptUsado) }
     ];
 
     for (const item of ordemExecucao) {
@@ -254,7 +321,7 @@ async function processarChatUniversal(req, res) {
     }
 
     if (!textoResposta) {
-      textoResposta = "Samuel, tive uma pequena instabilidade de conexão. Pode repetir?";
+      textoResposta = "Desculpe Samuel, tive um erro de conexão temporário com os provedores de inteligência.";
       provedorUsado = "Sistema-Local";
     }
 
@@ -268,15 +335,21 @@ async function processarChatUniversal(req, res) {
       } catch (e) {}
     }
 
-    return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
+    return res.json({
+      resposta: textoLimpoFinal,
+      reply: textoLimpoFinal,
+      text: textoLimpoFinal,
+      audio: audioBase64,
+      modoLive: eModoLive
+    });
+
   } catch (error) {
-    return res.json({ resposta: "Erro no servidor ao processar sua solicitação.", reply: "Erro no servidor ao processar sua solicitação.", text: "Erro no servidor ao processar sua solicitação." });
+    console.error(`[ERRO CRÍTICO CHAT]:`, error.message);
+    return res.json({ resposta: "Erro interno no servidor.", reply: "Erro interno no servidor.", text: "Erro interno no servidor." });
   }
 }
 
 app.all('*', processarChatUniversal);
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-  console.log(`Servidor Sexta-Feira rodando na porta ${PORT}`);
-});
+app.listen(PORT, () => console.log(`Servidor Sexta-Feira rodando na porta ${PORT}`));
