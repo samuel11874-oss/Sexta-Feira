@@ -8,7 +8,6 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-// Identidade ultra humana e natural
 const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal e grande parceira do Samuel. Você conversa de forma totalmente natural, humana, amigável, inteligente e prestativa. Responda sempre diretamente às perguntas do Samuel sem rodeios, ajude no que ele precisar, demonstre interesse pelo dia dele, lembre-se das conversas e interaja com carinho e lealdade.";
 
 const mongoUri = process.env.MONGO_URI;
@@ -20,9 +19,9 @@ async function conectarBanco() {
     const client = new MongoClient(mongoUri);
     await client.connect();
     dbColecao = client.db("sexta_feira_db").collection("memorias");
-    console.log("Conectado ao MongoDB Atlas com sucesso!");
+    console.log("[Banco] Conectado ao MongoDB Atlas com sucesso!");
   } catch (erro) {
-    console.error("Erro ao conectar no MongoDB:", erro.message);
+    console.error("[ERRO BANCO] Falha ao conectar no MongoDB:", erro.message);
   }
 }
 conectarBanco();
@@ -36,13 +35,13 @@ async function buscarHistoricoRecente() {
 }
 
 // ==========================================
-// FUNÇÕES DE COMUNICAÇÃO COM AS IAs
+// FUNÇÕES DE COMUNICAÇÃO COM RASTREIO DE ERROS
 // ==========================================
 
-// 1. GROQ (Prioridade Principal - Altíssima velocidade)
+// 1. GROQ
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) throw new Error("Chave Groq não configurada");
+  if (!groqKey) throw new Error("Chave GROQ_API_KEY não encontrada nas variáveis de ambiente do Render.");
 
   let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
   historicoAnterior.forEach(h => {
@@ -61,16 +60,16 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   if (response.ok && data.choices?.[0]?.message?.content) {
     return data.choices[0].message.content;
   } else {
-    throw new Error(data.error?.message || "Erro no Groq");
+    throw new Error(`[GROQ API ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
   }
 }
 
-// 2. GEMINI 1.5 FLASH (Backup 1 - Corrigido para v1)
+// 2. GEMINI (Corrigido para o endpoint v1beta com gemini-1.5-flash)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) throw new Error("Chave Gemini não configurada");
+  if (!geminiKey) throw new Error("Chave GEMINI_API_KEY não encontrada nas variáveis de ambiente do Render.");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
   const contents = [];
   
   historicoAnterior.forEach(h => {
@@ -94,14 +93,14 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
   if (response.ok) {
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } else {
-    throw new Error(data.error?.message || "Erro no Gemini");
+    throw new Error(`[GEMINI API ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
   }
 }
 
-// 3. HUGGING FACE (Backup 2)
+// 3. HUGGING FACE
 async function chamarHuggingFace(mensagemUsuario, historicoAnterior) {
   const hfKey = process.env.HUGGINGFACE_API_KEY;
-  if (!hfKey) throw new Error("Chave Hugging Face não configurada");
+  if (!hfKey) throw new Error("Chave HUGGINGFACE_API_KEY não encontrada nas variáveis de ambiente do Render.");
 
   let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
   historicoAnterior.forEach(h => {
@@ -125,11 +124,10 @@ async function chamarHuggingFace(mensagemUsuario, historicoAnterior) {
   if (response.ok && data.choices?.[0]?.message?.content) {
     return data.choices[0].message.content;
   } else {
-    throw new Error(data.error?.message || "Erro na Hugging Face");
+    throw new Error(`[HUGGINGFACE API ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
   }
 }
 
-// Voz Humana Neural via Edge TTS (Francisca)
 async function gerarAudioEdgeTTS(texto) {
   try {
     const textoLimpo = texto.replace(/[*_#`]/g, '');
@@ -193,11 +191,14 @@ async function processarChatUniversal(req, res) {
     if (typeof mensagemUsuario === 'object') mensagemUsuario = JSON.stringify(mensagemUsuario);
     mensagemUsuario = (mensagemUsuario || "Oi").trim();
 
+    console.log(`\n========================================`);
+    console.log(`[RASTREIO] Nova mensagem recebida: "${mensagemUsuario}"`);
+    console.log(`========================================`);
+
     const historicoRecente = await buscarHistoricoRecente();
     let textoResposta = "";
     let provedorUsado = "";
 
-    // ORDEM DE REDUNDÂNCIA AUTOMÁTICA OTIMIZADA: Groq -> Gemini -> Hugging Face
     const ordemExecucao = [
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
       { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
@@ -206,21 +207,23 @@ async function processarChatUniversal(req, res) {
 
     for (const item of ordemExecucao) {
       try {
-        console.log(`Tentando processar via ${item.nome}...`);
+        console.log(`[RASTREIO] Tentando processar via ${item.nome}...`);
         textoResposta = await item.funcao();
         if (textoResposta && textoResposta.trim() !== "") {
           provedorUsado = item.nome;
-          console.log(`Sucesso! Resposta gerada via: ${item.nome}`);
+          console.log(`[RASTREIO] SUCESSO! Resposta gerada com sucesso via: ${item.nome}`);
           break;
         }
       } catch (errApi) {
-        console.log(`${item.nome} falhou: ${errApi.message}. Tentando próxima API...`);
+        console.error(`[RASTREIO FALHA] Provedor ${item.nome} falhou.`);
+        console.error(`Detalhe do erro:`, errApi.message);
       }
     }
 
     if (!textoResposta) {
+      console.warn(`[RASTREIO AVISO] Todos os provedores falharam. Acionando resposta padrão.`);
       textoResposta = "Oi Samuel! Estou aqui com você. Pode falar, do que precisa?";
-      provedorUsado = "Sistema";
+      provedorUsado = "Sistema-Fallback";
     }
 
     let textoLimpoFinal = textoResposta.replace(/[*_#`]/g, '');
@@ -235,6 +238,7 @@ async function processarChatUniversal(req, res) {
 
     return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
   } catch (error) {
+    console.error(`[ERRO CRÍTICO NO CHAT]:`, error.message);
     return res.json({ resposta: "Opa Samuel, deu um pequeno erro no servidor. Me mande de novo por favor?", reply: "Opa Samuel, deu um pequeno erro no servidor. Me mande de novo por favor?", text: "Opa Samuel, deu um pequeno erro no servidor. Me mande de novo por favor?" });
   }
 }
