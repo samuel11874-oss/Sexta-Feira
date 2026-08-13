@@ -36,41 +36,10 @@ async function buscarHistoricoRecente() {
 }
 
 // ==========================================
-// FUNÇÕES DE COMUNICAÇÃO COM AS IAs (CORRIGIDAS)
+// FUNÇÕES DE COMUNICAÇÃO COM AS IAs
 // ==========================================
 
-// 1. HUGGING FACE (Corrigido para o novo endpoint OpenAI-compatible)
-async function chamarHuggingFace(mensagemUsuario, historicoAnterior) {
-  const hfKey = process.env.HUGGINGFACE_API_KEY;
-  if (!hfKey) throw new Error("Chave Hugging Face não configurada");
-
-  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
-  historicoAnterior.forEach(h => {
-    if (h.usuario) messages.push({ role: "user", content: h.usuario });
-    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
-  });
-  messages.push({ role: "user", content: mensagemUsuario });
-
-  const response = await fetch("https://api-inference.huggingface.co/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${hfKey}` },
-    body: JSON.stringify({
-      model: "meta-llama/Meta-Llama-3-8B-Instruct",
-      messages: messages,
-      max_tokens: 300,
-      temperature: 0.7
-    })
-  });
-
-  const data = await response.json();
-  if (response.ok && data.choices?.[0]?.message?.content) {
-    return data.choices[0].message.content;
-  } else {
-    throw new Error(data.error?.message || "Erro na Hugging Face");
-  }
-}
-
-// 2. GROQ
+// 1. GROQ (Prioridade Principal - Altíssima velocidade)
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave Groq não configurada");
@@ -96,7 +65,7 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 3. GEMINI 1.5 FLASH (Corrigido endpoint)
+// 2. GEMINI 1.5 FLASH (Backup 1 - Corrigido para v1)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave Gemini não configurada");
@@ -126,6 +95,37 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } else {
     throw new Error(data.error?.message || "Erro no Gemini");
+  }
+}
+
+// 3. HUGGING FACE (Backup 2)
+async function chamarHuggingFace(mensagemUsuario, historicoAnterior) {
+  const hfKey = process.env.HUGGINGFACE_API_KEY;
+  if (!hfKey) throw new Error("Chave Hugging Face não configurada");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://api-inference.huggingface.co/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${hfKey}` },
+    body: JSON.stringify({
+      model: "meta-llama/Meta-Llama-3-8B-Instruct",
+      messages: messages,
+      max_tokens: 300,
+      temperature: 0.7
+    })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error(data.error?.message || "Erro na Hugging Face");
   }
 }
 
@@ -197,11 +197,11 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    // ORDEM DE REDUNDÂNCIA AUTOMÁTICA: Hugging Face -> Groq -> Gemini
+    // ORDEM DE REDUNDÂNCIA AUTOMÁTICA OTIMIZADA: Groq -> Gemini -> Hugging Face
     const ordemExecucao = [
-      { nome: "HuggingFace", funcao: () => chamarHuggingFace(mensagemUsuario, historicoRecente) },
       { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
-      { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) }
+      { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
+      { nome: "HuggingFace", funcao: () => chamarHuggingFace(mensagemUsuario, historicoRecente) }
     ];
 
     for (const item of ordemExecucao) {
