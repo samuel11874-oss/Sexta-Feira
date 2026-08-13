@@ -10,6 +10,9 @@ app.use(express.text({ type: '*/*' }));
 
 const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal e grande parceira do Samuel. Você conversa de forma totalmente natural, humana, amigável, inteligente e prestativa. Responda sempre diretamente às perguntas do Samuel sem rodeios, ajude no que ele precisar, demonstre interesse pelo dia dele, lembre-se das conversas e interaja com carinho e lealdade.";
 
+// ==========================================
+// 1. BANCO DE DADOS (MongoDB Atlas)
+// ==========================================
 const mongoUri = process.env.MONGO_URI;
 let dbColecao = null;
 
@@ -34,24 +37,47 @@ async function buscarHistoricoRecente() {
   } catch (erro) { return []; }
 }
 
-// Resposta inteligente local (Nosso Salva-Vidas)
-function gerarRespostaLocal(mensagem) {
-  const msg = (mensagem || "").toLowerCase();
-  if (msg.includes("oi") || msg.includes("olá") || msg.includes("tudo bem")) {
-    return "Opa, Samuel! Tudo ótimo por aqui com os sistemas. Como estão as coisas por aí?";
+// ==========================================
+// 2. ECONOMIA DE API (Triagem Local)
+// ==========================================
+function triagemLocal(mensagem) {
+  const msg = (mensagem || "").trim().toLowerCase();
+
+  if (msg === "oi" || msg === "olá" || msg === "ola" || msg === "hey") {
+    return "Opa Samuel! Fala comigo, como estão as coisas?";
   }
-  if (msg.includes("trabalho") || msg.includes("corrida")) {
-    return "Força aí nos corres e nas corridas, Samuel! Estou torcendo sempre pelo seu dia produtivo.";
+  if (msg.includes("bom dia")) {
+    return "Bom dia, Samuel! Que seu dia seja abençoado e muito produtivo nos corres!";
   }
-  return `Samuel, recebi sua mensagem. As redes principais deram uma travadinha rápida por limite de uso, mas estou por aqui com você! O que manda?`;
+  if (msg.includes("boa tarde")) {
+    return "Boa tarde, Samuel! Como estão os agendamentos e o trabalho por aí?";
+  }
+  if (msg.includes("boa noite")) {
+    return "Boa noite, Samuel! Tarde de trabalho finalizada ou ainda no corre? Se precisar, estou por aqui!";
+  }
+  if (msg.includes("tudo bem") || msg.includes("como voce ta") || msg.includes("como você está")) {
+    return "Tudo ótimo por aqui com nossos sistemas, Samuel! E com você, como está sendo o dia?";
+  }
+  if (msg === "obrigado" || msg === "valeu" || msg === "tmj") {
+    return "Tamo junto demais, Samuel! Sempre que precisar, é só chamar.";
+  }
+
+  return null;
 }
 
-// 1. GEMINI (Atualizado para a versão 3.5 solicitada)
-async function chamarGemini(mensagemUsuario, historicoAnterior) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) throw new Error("Chave GEMINI_API_KEY não encontrada.");
+function gerarRespostaEmergencia(mensagem) {
+  return "Samuel, recebi sua mensagem! Nossos sistemas de IA deram uma pausa rápida, mas estou aqui online com você. O que manda?";
+}
 
-  // Mudança aqui: gemini-3.5-flash
+// ==========================================
+// 3. PROVEDORES DE IA (Multi-APIs em Cascata)
+// ==========================================
+
+// --- PROVEDOR 1: GEMINI (3.5 Flash) ---
+async function chamarGemini(mensagemUsuario, historicoAnterior) {
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY || process.env.GEMIN_KEY;
+  if (!geminiKey) throw new Error("Chave GEMINI não configurada.");
+
   const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
   const contents = [];
   
@@ -76,14 +102,14 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
   if (response.ok) {
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   } else {
-    throw new Error(`[GEMINI API ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
+    throw new Error(`[GEMINI ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
   }
 }
 
-// 2. GROQ
+// --- PROVEDOR 2: GROQ (Llama 3.3 70B) ---
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!groqKey) throw new Error("Chave GROQ_API_KEY não encontrada.");
+  const groqKey = process.env.GROQ_API_KEY || process.env.GROQ_KEY;
+  if (!groqKey) throw new Error("Chave GROQ não configurada.");
 
   let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
   historicoAnterior.forEach(h => {
@@ -102,10 +128,86 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   if (response.ok && data.choices?.[0]?.message?.content) {
     return data.choices[0].message.content;
   } else {
-    throw new Error(`[GROQ API ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
+    throw new Error(`[GROQ ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
   }
 }
 
+// --- PROVEDOR 3: MISTRAL AI ---
+async function chamarMistral(mensagemUsuario, historicoAnterior) {
+  const mistralKey = process.env.MISTRAL_API_KEY || process.env.MISTRAL_KEY || process.env.MISTR_KEY;
+  if (!mistralKey) throw new Error("Chave MISTRAL não configurada.");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
+    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.7 })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error(`[MISTRAL ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
+  }
+}
+
+// --- PROVEDOR 4: OPENROUTER ---
+async function chamarOpenRouter(mensagemUsuario, historicoAnterior) {
+  const openrouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_KEY || process.env.OPENR_KEY;
+  if (!openrouterKey) throw new Error("Chave OPENROUTER não configurada.");
+
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
+  historicoAnterior.forEach(h => {
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
+  });
+  messages.push({ role: "user", content: mensagemUsuario });
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openrouterKey}` },
+    body: JSON.stringify({ model: "meta-llama/llama-3.3-70b-instruct:free", messages: messages, temperature: 0.7 })
+  });
+
+  const data = await response.json();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error(`[OPENROUTER ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
+  }
+}
+
+// --- PROVEDOR 5: HUGGING FACE ---
+async function chamarHuggingFace(mensagemUsuario) {
+  const hfKey = process.env.HUGGINGFACE_API_KEY || process.env.HUGGING_FACE_KEY || process.env.HUGGI_KEY;
+  if (!hfKey) throw new Error("Chave HUGGINGFACE não configurada.");
+
+  const response = await fetch("https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${hfKey}` },
+    body: JSON.stringify({ inputs: `<s>[INST] ${SISTEMA_IDENTIDADE}\n\nSamuel diz: ${mensagemUsuario} [/INST]` })
+  });
+
+  const data = await response.json();
+  if (response.ok && Array.isArray(data) && data[0]?.generated_text) {
+    const textoGerado = data[0].generated_text;
+    const partes = textoGerado.split("[/INST]");
+    return partes[partes.length - 1].trim();
+  } else {
+    throw new Error(`[HUGGINGFACE ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
+  }
+}
+
+// ==========================================
+// 4. VOZ (Edge TTS)
+// ==========================================
 async function gerarAudioEdgeTTS(texto) {
   try {
     const textoLimpo = texto.replace(/[*_#`]/g, '');
@@ -130,13 +232,16 @@ async function gerarAudioEdgeTTS(texto) {
   } catch (erro) { return ""; }
 }
 
+// ==========================================
+// 5. ROTA DE RECONHECIMENTO FACIAL (Luxand)
+// ==========================================
 app.post('/reconhecer', async (req, res) => {
   try {
     const { imagemBase64 } = req.body;
     if (!imagemBase64) return res.status(400).json({ sucesso: false, mensagem: "Nenhuma imagem enviada." });
 
     const API_1_URL = process.env.API_1_URL || 'https://api.luxand.cloud/photo/v2';
-    const API_1_KEY = process.env.API_1_KEY || '';
+    const API_1_KEY = process.env.API_1_KEY || process.env.API_1_TOKEN || '';
 
     let nomeReconhecido = "Samuel";
     try {
@@ -153,6 +258,9 @@ app.post('/reconhecer', async (req, res) => {
   }
 });
 
+// ==========================================
+// 6. PROCESSADOR UNIVERSAL DO CHAT
+// ==========================================
 async function processarChatUniversal(req, res) {
   if (req.path === '/reconhecer') return;
 
@@ -173,33 +281,45 @@ async function processarChatUniversal(req, res) {
     console.log(`[RASTREIO] Nova mensagem: "${mensagemUsuario}"`);
     console.log(`========================================`);
 
-    const historicoRecente = await buscarHistoricoRecente();
     let textoResposta = "";
     let provedorUsado = "";
 
-    const ordemExecucao = [
-      { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
-      { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) }
-    ];
+    // FILTRO LOCAL (Economia de tokens)
+    const respostaTriagem = triagemLocal(mensagemUsuario);
+    if (respostaTriagem) {
+      textoResposta = respostaTriagem;
+      provedorUsado = "Filtro-Local-Economico";
+      console.log(`[ECONOMIA] Respondido via Triagem Local sem gastar API.`);
+    } else {
+      // EXECUÇÃO EM CASCATA DAS APIS
+      const historicoRecente = await buscarHistoricoRecente();
+      const ordemExecucao = [
+        { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
+        { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
+        { nome: "Mistral", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) },
+        { nome: "OpenRouter", funcao: () => chamarOpenRouter(mensagemUsuario, historicoRecente) },
+        { nome: "HuggingFace", funcao: () => chamarHuggingFace(mensagemUsuario) }
+      ];
 
-    for (const item of ordemExecucao) {
-      try {
-        console.log(`[RASTREIO] Tentando processar via ${item.nome}...`);
-        textoResposta = await item.funcao();
-        if (textoResposta && textoResposta.trim() !== "") {
-          provedorUsado = item.nome;
-          console.log(`[RASTREIO] SUCESSO via: ${item.nome}`);
-          break;
+      for (const item of ordemExecucao) {
+        try {
+          console.log(`[RASTREIO] Tentando via ${item.nome}...`);
+          textoResposta = await item.funcao();
+          if (textoResposta && textoResposta.trim() !== "") {
+            provedorUsado = item.nome;
+            console.log(`[RASTREIO SUCESSO] Resposta gerada via: ${item.nome}`);
+            break;
+          }
+        } catch (errApi) {
+          console.error(`[RASTREIO FALHA] ${item.nome} falhou:`, errApi.message);
         }
-      } catch (errApi) {
-        console.error(`[RASTREIO FALHA] ${item.nome} falhou:`, errApi.message);
       }
-    }
 
-    if (!textoResposta) {
-      console.warn(`[RASTREIO AVISO] Usando gerador de resposta local inteligente.`);
-      textoResposta = gerarRespostaLocal(mensagemUsuario); 
-      provedorUsado = "Sistema-Local";
+      if (!textoResposta) {
+        console.warn(`[RASTREIO AVISO] Todas as APIs falharam. Usando gerador local de emergência.`);
+        textoResposta = gerarRespostaEmergencia(mensagemUsuario);
+        provedorUsado = "Sistema-Local-Emergencia";
+      }
     }
 
     let textoLimpoFinal = textoResposta.replace(/[*_#`]/g, '');
