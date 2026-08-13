@@ -8,8 +8,26 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-// --- PROMPT DIRETO, INTELIGENTE E SEM TEATRO ---
-const SISTEMA_IDENTIDADE = "Você é a Sexta-Feira, assistente pessoal e parceira do Samuel. Seja sempre direta, humana, inteligente, simpática e altamente eficiente. NUNCA invente histórias fictícias, bloqueios falsos, contadores de mensagens, textos de encenação, efeitos sonoros ou ações entre parênteses. Responda sempre diretamente e com clareza ao que o Samuel perguntar ou pedir.";
+// ==========================================
+// PROMPT DE IDENTIDADE COMPLETO (PERFIL REAL DO SAMUEL)
+// ==========================================
+const SISTEMA_IDENTIDADE = `Você é a Sexta-Feira, assistente pessoal e parceira de Inteligência Artificial do Samuel, inspirada no sistema JARVIS do Homem de Ferro.
+
+SOBRE O SEU CRIADOR E USUÁRIO (SAMUEL):
+- Nome: Samuel da Silva Pereira.
+- Esposa: Karine.
+- Filhos: Saymon e Rodrigo.
+- Veículo: Renault Kwid.
+- Localização: Vitória, Espírito Santo.
+- Profissão: Motorista de aplicativo e transporte executivo privado.
+- Paixão: Apaixonado por tecnologia, automação e Inteligência Artificial (fã do JARVIS e do Gemini).
+
+SUA PERSONALIZADA E DIRETRIZES:
+1. Seja sempre extremamente inteligente, natural, elegante, leal, eficiente e direta, igual o JARVIS conversando com o Tony Stark.
+2. Converse normalmente como uma pessoa e assistente real.
+3. NUNCA crie historinhas fictícias, bloqueios de sistema falsos, contadores de 'Ois', logs simulados ou textos entre parênteses como *sons de teclado*.
+4. Responda diretamente ao que o Samuel perguntar ou pedir de forma objetiva e inteligente.
+5. Use o conhecimento que você tem sobre ele (família, trabalho, rotina) de forma natural quando fizer sentido na conversa.`;
 
 // ==========================================
 // 1. BANCO DE DADOS (MongoDB Atlas)
@@ -30,11 +48,18 @@ async function conectarBanco() {
 }
 conectarBanco();
 
-async function buscarHistoricoRecente() {
+// Filtra históricos limpos ignorando respostas teatrais antigas
+async function buscarHistoricoLimo() {
   if (!dbColecao) return [];
   try {
-    const historico = await dbColecao.find({}).sort({ _id: -1 }).limit(4).toArray();
-    return historico.reverse();
+    const historico = await dbColecao.find({}).sort({ _id: -1 }).limit(6).toArray();
+    const historicoInvertido = historico.reverse();
+    
+    // Remove mensagens antigas corrompidas do contexto
+    return historicoInvertido.filter(h => {
+      const resp = (h.resposta || "").toLowerCase();
+      return !resp.includes("contador de 'ois'") && !resp.includes("protocolo") && !resp.includes("desligamento gracioso");
+    });
   } catch (erro) { return []; }
 }
 
@@ -42,7 +67,7 @@ async function limparMemoriaBanco() {
   if (!dbColecao) return false;
   try {
     await dbColecao.deleteMany({});
-    console.log("[Banco] Memória corrompida/antiga apagada com sucesso!");
+    console.log("[Banco] Memória resetada com sucesso!");
     return true;
   } catch (e) {
     return false;
@@ -50,15 +75,16 @@ async function limparMemoriaBanco() {
 }
 
 // ==========================================
-// 2. APIS DE IA (Temperatura Baixa = Resposta Precisa)
+// 2. CONEXÃO COM AS APIS DE IA
 // ==========================================
 
-// Gemini 3.5 Flash
+// CÉREBRO PRINCIPAL: GEMINI 1.5 FLASH
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI || process.env.GEMINI_KEY || process.env.GEMIN_KEY;
   if (!geminiKey) throw new Error("Chave GEMINI não encontrada.");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
+  // Modelo oficial e estável do Google
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
   const contents = [];
   
   historicoAnterior.forEach(h => {
@@ -74,7 +100,7 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
     body: JSON.stringify({
       system_instruction: { parts: [{ text: SISTEMA_IDENTIDADE }] },
       contents: contents,
-      generationConfig: { temperature: 0.3 }
+      generationConfig: { temperature: 0.4 }
     })
   });
 
@@ -86,7 +112,7 @@ async function chamarGemini(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// Groq
+// RESERVA 1: GROQ
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY || process.env.GROQ || process.env.GROQ_KEY;
   if (!groqKey) throw new Error("Chave GROQ não encontrada.");
@@ -101,7 +127,7 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
-    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.3 })
+    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.4 })
   });
 
   const data = await response.json();
@@ -112,7 +138,7 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// Mistral
+// RESERVA 2: MISTRAL
 async function chamarMistral(mensagemUsuario, historicoAnterior) {
   const mistralKey = process.env.MISTRAL_API_KEY || process.env.MISTRAL || process.env.MISTRAL_KEY || process.env.MISTR_KEY;
   if (!mistralKey) throw new Error("Chave MISTRAL não encontrada.");
@@ -127,7 +153,7 @@ async function chamarMistral(mensagemUsuario, historicoAnterior) {
   const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
-    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.3 })
+    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.4 })
   });
 
   const data = await response.json();
@@ -138,7 +164,7 @@ async function chamarMistral(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// OpenRouter
+// RESERVA 3: OPENROUTER
 async function chamarOpenRouter(mensagemUsuario, historicoAnterior) {
   const openrouterKey = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER || process.env.OPENROUTER_KEY || process.env.OPENR_KEY;
   if (!openrouterKey) throw new Error("Chave OPENROUTER não encontrada.");
@@ -153,7 +179,7 @@ async function chamarOpenRouter(mensagemUsuario, historicoAnterior) {
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${openrouterKey}` },
-    body: JSON.stringify({ model: "meta-llama/llama-3.3-70b-instruct:free", messages: messages, temperature: 0.3 })
+    body: JSON.stringify({ model: "meta-llama/llama-3.3-70b-instruct:free", messages: messages, temperature: 0.4 })
   });
 
   const data = await response.json();
@@ -165,7 +191,7 @@ async function chamarOpenRouter(mensagemUsuario, historicoAnterior) {
 }
 
 // ==========================================
-// 3. SÍNTESE DE VOZ (Edge TTS)
+// 3. VOZ DO SISTEMA (Edge TTS)
 // ==========================================
 async function gerarAudioEdgeTTS(texto) {
   try {
@@ -208,7 +234,7 @@ app.post('/reconhecer', async (req, res) => {
       nomeReconhecido = respostaApi1.data.name || 'Samuel';
     } catch (e) {}
 
-    const textoResposta = `Reconhecimento concluído. Olá Samuel, como posso te ajudar agora?`;
+    const textoResposta = `Sistemas prontos. É um prazer vê-lo, Samuel. Como posso te ajudar agora?`;
     let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
 
     return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, audio: audioBase64 });
@@ -218,7 +244,7 @@ app.post('/reconhecer', async (req, res) => {
 });
 
 // ==========================================
-// 5. PROCESSADOR CHAT UNIVERSAL
+// 5. PROCESSADOR DE CHAT
 // ==========================================
 async function processarChatUniversal(req, res) {
   if (req.path === '/reconhecer') return;
@@ -237,14 +263,14 @@ async function processarChatUniversal(req, res) {
     mensagemUsuario = (mensagemUsuario || "Oi").trim();
 
     console.log(`\n========================================`);
-    console.log(`[RASTREIO] Mensagem recebida: "${mensagemUsuario}"`);
+    console.log(`[JARVIS] Mensagem do Samuel: "${mensagemUsuario}"`);
     console.log(`========================================`);
 
-    // COMANDO DE RESET MANUAL DA MEMÓRIA CORROMPIDA
+    // COMANDO DE RESET MANUAL
     const msgBaixa = mensagemUsuario.toLowerCase();
     if (msgBaixa === "reset" || msgBaixa === "limpar" || msgBaixa === "/reset") {
       await limparMemoriaBanco();
-      const txtReset = "Memória resetada com sucesso, Samuel! Apaguei os históricos antigos. Como posso te ajudar agora?";
+      const txtReset = "Memória completamente resetada, Samuel. Todos os registros antigos foram limpos. Como posso te servir hoje?";
       let audReset = await gerarAudioEdgeTTS(txtReset);
       return res.json({ resposta: txtReset, reply: txtReset, text: txtReset, audio: audReset });
     }
@@ -252,31 +278,31 @@ async function processarChatUniversal(req, res) {
     let textoResposta = "";
     let provedorUsado = "";
 
-    const historicoRecente = await buscarHistoricoRecente();
+    const historicoLimpo = await buscarHistoricoLimo();
     
     const ordemExecucao = [
-      { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoRecente) },
-      { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoRecente) },
-      { nome: "Mistral", funcao: () => chamarMistral(mensagemUsuario, historicoRecente) },
-      { nome: "OpenRouter", funcao: () => chamarOpenRouter(mensagemUsuario, historicoRecente) }
+      { nome: "Gemini", funcao: () => chamarGemini(mensagemUsuario, historicoLimpo) },
+      { nome: "Groq", funcao: () => chamarGroq(mensagemUsuario, historicoLimpo) },
+      { nome: "Mistral", funcao: () => chamarMistral(mensagemUsuario, historicoLimpo) },
+      { nome: "OpenRouter", funcao: () => chamarOpenRouter(mensagemUsuario, historicoLimpo) }
     ];
 
     for (const item of ordemExecucao) {
       try {
-        console.log(`[PROCESSANDO] Tentando via ${item.nome}...`);
+        console.log(`[PROCESSANDO] Consultando ${item.nome}...`);
         textoResposta = await item.funcao();
         if (textoResposta && textoResposta.trim() !== "") {
           provedorUsado = item.nome;
-          console.log(`[SUCESSO] Respondido por: ${item.nome}`);
+          console.log(`[SUCESSO] Respondido com precisão via: ${item.nome}`);
           break;
         }
       } catch (errApi) {
-        console.error(`[FALHA] ${item.nome}:`, errApi.message);
+        console.error(`[FALHA] Provedor ${item.nome}:`, errApi.message);
       }
     }
 
     if (!textoResposta) {
-      textoResposta = "Oi Samuel, estou por aqui! Como posso te ajudar agora?";
+      textoResposta = "Estou aqui, Samuel. Como posso te ajudar no momento?";
       provedorUsado = "Sistema-Local";
     }
 
@@ -293,7 +319,7 @@ async function processarChatUniversal(req, res) {
     return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
   } catch (error) {
     console.error(`[ERRO CRÍTICO]:`, error.message);
-    return res.json({ resposta: "Oi Samuel, deu uma pequena oscilação. Pode falar de novo?", reply: "Oi Samuel, deu uma pequena oscilação. Pode falar de novo?", text: "Oi Samuel, deu uma pequena oscilação. Pode falar de novo?" });
+    return res.json({ resposta: "Sistemas operacionais normais, Samuel. Pode repetir o comando?", reply: "Sistemas operacionais normais, Samuel. Pode repetir o comando?", text: "Sistemas operacionais normais, Samuel. Pode repetir o comando?" });
   }
 }
 
