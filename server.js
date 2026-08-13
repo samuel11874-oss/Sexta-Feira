@@ -8,10 +8,9 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.text({ type: '*/*' }));
 
-// Identidade ultra humana, natural, inteligente e conversacional
-const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal e grande parceira do Samuel. Você conversa de forma totalmente natural, humana, amigável, inteligente e prestativa. Responda sempre diretamente às perguntas do Samuel sem rodeios, ajude no que ele precisar, demonstre interesse pelo dia dele, lembre-se das conversas e interaja com carinho e lealdade, exatamente como uma verdadeira companheira de inteligência artificial.";
+// Identidade ultra humana e natural
+const SISTEMA_IDENTIDADE = "Seu nome é Sexta-Feira. Você é a assistente pessoal e grande parceira do Samuel. Você conversa de forma totalmente natural, humana, amigável, inteligente e prestativa. Responda sempre diretamente às perguntas do Samuel sem rodeios, ajude no que ele precisar, demonstre interesse pelo dia dele, lembre-se das conversas e interaja com carinho e lealdade.";
 
-// Configuração do MongoDB para Memória de Longo Prazo
 const mongoUri = process.env.MONGO_URI;
 let dbColecao = null;
 
@@ -28,7 +27,6 @@ async function conectarBanco() {
 }
 conectarBanco();
 
-// Resgata o histórico recente para manter a continuidade da conversa
 async function buscarHistoricoRecente() {
   if (!dbColecao) return [];
   try {
@@ -38,43 +36,41 @@ async function buscarHistoricoRecente() {
 }
 
 // ==========================================
-// FUNÇÕES DE COMUNICAÇÃO COM AS IAs (COM MUDANÇA AUTOMÁTICA)
+// FUNÇÕES DE COMUNICAÇÃO COM AS IAs (CORRIGIDAS)
 // ==========================================
 
-// 1. HUGGING FACE (Agora em 1º Lugar)
+// 1. HUGGING FACE (Corrigido para o novo endpoint OpenAI-compatible)
 async function chamarHuggingFace(mensagemUsuario, historicoAnterior) {
   const hfKey = process.env.HUGGINGFACE_API_KEY;
   if (!hfKey) throw new Error("Chave Hugging Face não configurada");
 
-  let promptCompleta = `${SISTEMA_IDENTIDADE}\n\n`;
+  let messages = [{ role: "system", content: SISTEMA_IDENTIDADE }];
   historicoAnterior.forEach(h => {
-    if (h.usuario) promptCompleta += `Samuel: ${h.usuario}\n`;
-    if (h.resposta) promptCompleta += `Sexta-Feira: ${h.resposta}\n`;
+    if (h.usuario) messages.push({ role: "user", content: h.usuario });
+    if (h.resposta) messages.push({ role: "assistant", content: h.resposta });
   });
-  promptCompleta += `Samuel: ${mensagemUsuario}\nSexta-Feira:`;
+  messages.push({ role: "user", content: mensagemUsuario });
 
-  const response = await fetch("https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct", {
+  const response = await fetch("https://api-inference.huggingface.co/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${hfKey}` },
     body: JSON.stringify({
-      inputs: promptCompleta,
-      parameters: { max_new_tokens: 300, temperature: 0.7, return_full_text: false }
+      model: "meta-llama/Meta-Llama-3-8B-Instruct",
+      messages: messages,
+      max_tokens: 300,
+      temperature: 0.7
     })
   });
 
   const data = await response.json();
-  let textoGerado = "";
-  if (response.ok && Array.isArray(data) && data[0]?.generated_text) {
-    textoGerado = data[0].generated_text.trim();
-  } else if (data.generated_text) {
-    textoGerado = data.generated_text.trim();
+  if (response.ok && data.choices?.[0]?.message?.content) {
+    return data.choices[0].message.content;
+  } else {
+    throw new Error(data.error?.message || "Erro na Hugging Face");
   }
-
-  if (!textoGerado) throw new Error("Hugging Face retornou vazio");
-  return textoGerado;
 }
 
-// 2. GROQ (Backup 1)
+// 2. GROQ
 async function chamarGroq(mensagemUsuario, historicoAnterior) {
   const groqKey = process.env.GROQ_API_KEY;
   if (!groqKey) throw new Error("Chave Groq não configurada");
@@ -100,12 +96,12 @@ async function chamarGroq(mensagemUsuario, historicoAnterior) {
   }
 }
 
-// 3. GEMINI 1.5 FLASH (Backup 2)
+// 3. GEMINI 1.5 FLASH (Corrigido endpoint)
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) throw new Error("Chave Gemini não configurada");
 
-  const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+  const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
   const contents = [];
   
   historicoAnterior.forEach(h => {
@@ -172,7 +168,7 @@ app.post('/reconhecer', async (req, res) => {
       nomeReconhecido = respostaApi1.data.name || 'Samuel';
     } catch (e) {}
 
-    const textoResposta = `Opa, Samuel! Reconhecimento facial concluído com sucesso.`;
+    const textoResposta = `Opa, Samuel! Reconhecimento facial concluído.`;
     let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
 
     return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, audio: audioBase64 });
@@ -210,7 +206,6 @@ async function processarChatUniversal(req, res) {
 
     for (const item of ordemExecucao) {
       try {
-        console.br = true;
         console.log(`Tentando processar via ${item.nome}...`);
         textoResposta = await item.funcao();
         if (textoResposta && textoResposta.trim() !== "") {
@@ -240,7 +235,7 @@ async function processarChatUniversal(req, res) {
 
     return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
   } catch (error) {
-    return res.json({ resposta: "Opa Samuel, deu um pequeno aqui no servidor. Me mande de novo por favor?", reply: "Opa Samuel, deu um pequeno aqui no servidor. Me mande de novo por favor?", text: "Opa Samuel, deu um pequeno aqui no servidor. Me mande de novo por favor?" });
+    return res.json({ resposta: "Opa Samuel, deu um pequeno erro no servidor. Me mande de novo por favor?", reply: "Opa Samuel, deu um pequeno erro no servidor. Me mande de novo por favor?", text: "Opa Samuel, deu um pequeno erro no servidor. Me mande de novo por favor?" });
   }
 }
 
