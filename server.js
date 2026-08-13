@@ -5,8 +5,7 @@ const axios = require('axios');
 const app = express();
 
 // ==========================================
-// 1. REGRA DE SEGURANÇA (CORS) NO TOPO ABSOLUTO
-// Libera o Spck Editor / Navegador para conectar
+// 1. CONFIGURAÇÃO DE CORS (LIBERAÇÃO TOTAL)
 // ==========================================
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -18,10 +17,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// Parsers para ler os dados enviados pelo aplicativo
 app.use(express.text({ type: '*/*', limit: '10mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Rota simples de teste de vida do servidor
+app.get('/', (req, res) => {
+  res.json({ status: "online", mensagem: "Servidor da Sexta-Feira rodando perfeitamente!" });
+});
 
 // ==========================================
 // 2. PERFIL E IDENTIDADE DA SEXTA-FEIRA
@@ -61,12 +64,12 @@ let dbColecao = null;
 async function conectarBanco() {
   if (!mongoUri) return;
   try {
-    const client = new MongoClient(mongoUri);
+    const client = new MongoClient(mongoUri, { serverSelectionTimeoutMS: 5000 });
     await client.connect();
     dbColecao = client.db("sexta_feira_db").collection("memorias");
-    console.log("[Banco] Conectado ao MongoDB Atlas com sucesso!");
+    console.log("[Banco] Conectado ao MongoDB Atlas!");
   } catch (erro) {
-    console.error("[ERRO BANCO] Falha ao conectar no MongoDB:", erro.message);
+    console.error("[ERRO BANCO]:", erro.message);
   }
 }
 conectarBanco();
@@ -83,7 +86,6 @@ async function limparMemoriaBanco() {
   if (!dbColecao) return false;
   try {
     await dbColecao.deleteMany({});
-    console.log("[Banco] Memória limpa com sucesso!");
     return true;
   } catch (e) { return false; }
 }
@@ -117,7 +119,7 @@ function extrairTextoDoRequest(req) {
 }
 
 // ==========================================
-// 5. APIS DE IA (Gemini / Groq / Mistral)
+// 5. APIS DE IA (Gemini / Groq / Mistral via Axios)
 // ==========================================
 async function chamarGemini(mensagemUsuario, historicoAnterior, sistemaPrompt) {
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI || process.env.GEMINI_KEY;
@@ -133,22 +135,13 @@ async function chamarGemini(mensagemUsuario, historicoAnterior, sistemaPrompt) {
   
   contents.push({ role: "user", parts: [{ text: mensagemUsuario }] });
 
-  const response = await fetch(geminiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: sistemaPrompt }] },
-      contents: contents,
-      generationConfig: { temperature: 0.3 }
-    })
-  });
+  const res = await axios.post(geminiUrl, {
+    system_instruction: { parts: [{ text: sistemaPrompt }] },
+    contents: contents,
+    generationConfig: { temperature: 0.3 }
+  }, { timeout: 12000 });
 
-  const data = await response.json();
-  if (response.ok) {
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  } else {
-    throw new Error(`[GEMINI ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
-  }
+  return res.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
 async function chamarGroq(mensagemUsuario, historicoAnterior, sistemaPrompt) {
@@ -162,18 +155,16 @@ async function chamarGroq(mensagemUsuario, historicoAnterior, sistemaPrompt) {
   });
   messages.push({ role: "user", content: mensagemUsuario });
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${groqKey}` },
-    body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: messages, temperature: 0.3 })
+  const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
+    model: "llama-3.3-70b-versatile",
+    messages: messages,
+    temperature: 0.3
+  }, {
+    headers: { "Authorization": `Bearer ${groqKey}` },
+    timeout: 12000
   });
 
-  const data = await response.json();
-  if (response.ok && data.choices?.[0]?.message?.content) {
-    return data.choices[0].message.content;
-  } else {
-    throw new Error(`[GROQ ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
-  }
+  return res.data?.choices?.[0]?.message?.content || "";
 }
 
 async function chamarMistral(mensagemUsuario, historicoAnterior, sistemaPrompt) {
@@ -187,79 +178,56 @@ async function chamarMistral(mensagemUsuario, historicoAnterior, sistemaPrompt) 
   });
   messages.push({ role: "user", content: mensagemUsuario });
 
-  const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${mistralKey}` },
-    body: JSON.stringify({ model: "mistral-small-latest", messages: messages, temperature: 0.3 })
+  const res = await axios.post("https://api.mistral.ai/v1/chat/completions", {
+    model: "mistral-small-latest",
+    messages: messages,
+    temperature: 0.3
+  }, {
+    headers: { "Authorization": `Bearer ${mistralKey}` },
+    timeout: 12000
   });
 
-  const data = await response.json();
-  if (response.ok && data.choices?.[0]?.message?.content) {
-    return data.choices[0].message.content;
-  } else {
-    throw new Error(`[MISTRAL ERROR] Status ${response.status}: ${JSON.stringify(data.error || data)}`);
-  }
+  return res.data?.choices?.[0]?.message?.content || "";
 }
 
 // ==========================================
-// 6. SÍNTESE DE VOZ (Edge TTS)
+// 6. SÍNTESE DE VOZ CORRIGIDA (Edge TTS)
 // ==========================================
 async function gerarAudioEdgeTTS(texto) {
   try {
-    const textoLimpo = texto.replace(/[*_#`]/g, '');
+    const textoLimpo = texto.replace(/[*_#`]/g, '').trim();
+    if (!textoLimpo) return "";
+
     const voice = "pt-BR-FranciscaNeural";
     const url = "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?trustedclienttoken=6A5AA1D4EAFF4E9FB37E23D68491D6F4";
     
     const body = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="pt-BR">
                     <voice name="${voice}">
-                      <prosody rate="1.05" pitch="0%">${textoLimpo}</prosody>
+                      <prosody rate="1.0" pitch="0%">${textoLimpo}</prosody>
                     </voice>
                   </speak>`;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/ssml+xml" },
-      body: body
+    const res = await axios.post(url, body, {
+      headers: {
+        "Content-Type": "application/ssml+xml",
+        "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"
+      },
+      responseType: "arraybuffer",
+      timeout: 10000
     });
 
-    if (!response.ok) return "";
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer).toString("base64");
-  } catch (erro) { return ""; }
+    return Buffer.from(res.data).toString("base64");
+  } catch (erro) {
+    console.error("[ERRO VOZ EDGE TTS]:", erro.message);
+    return "";
+  }
 }
 
 // ==========================================
-// 7. RECONHECIMENTO FACIAL
-// ==========================================
-app.post('/reconhecer', async (req, res) => {
-  try {
-    const { imagemBase64 } = req.body || {};
-    if (!imagemBase64) return res.status(400).json({ sucesso: false, mensagem: "Nenhuma imagem enviada." });
-
-    const API_1_URL = process.env.API_1_URL || 'https://api.luxand.cloud/photo/v2';
-    const API_1_KEY = process.env.API_1_KEY || process.env.API_1_TOKEN || '';
-
-    let nomeReconhecido = "Samuel";
-    try {
-      const respostaApi1 = await axios.post(API_1_URL, { image: imagemBase64 }, { headers: { 'token': API_1_KEY } });
-      nomeReconhecido = respostaApi1.data.name || 'Samuel';
-    } catch (e) {}
-
-    const textoResposta = `Reconhecimento concluído. Olá Samuel, como posso te ajudar agora?`;
-    let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
-
-    return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, audio: audioBase64 });
-  } catch (error) {
-    return res.status(500).json({ sucesso: false, erro: error.message });
-  }
-});
-
-// ==========================================
-// 8. PROCESSADOR CHAT UNIVERSAL & MODO LIVE
+// 7. PROCESSADOR DE CHAT
 // ==========================================
 async function processarChatUniversal(req, res) {
-  if (req.path === '/reconhecer') return;
-
   try {
     const mensagemUsuario = extrairTextoDoRequest(req);
 
@@ -271,7 +239,6 @@ async function processarChatUniversal(req, res) {
 
     const msgBaixa = mensagemUsuario.toLowerCase().trim();
 
-    // COMANDO RESET DA MEMÓRIA
     if (msgBaixa === "reset" || msgBaixa === "limpar" || msgBaixa === "/reset") {
       await limparMemoriaBanco();
       const txtReset = "Memória recente resetada com sucesso, Samuel!";
@@ -279,7 +246,6 @@ async function processarChatUniversal(req, res) {
       return res.json({ resposta: txtReset, reply: txtReset, text: txtReset, audio: audReset });
     }
 
-    // CONTROLE DE MODO LIVE
     let eModoLive = req.body?.modoLive === true || req.query?.modoLive === 'true';
 
     if (msgBaixa.includes("ativar modo live") || msgBaixa.includes("modo live ativar")) {
@@ -295,7 +261,6 @@ async function processarChatUniversal(req, res) {
       return res.json({ resposta: txtSair, reply: txtSair, audio: audSair, modoLive: false });
     }
 
-    // PROCESSAR RESPOSTA COM AS IAs
     const historicoLimpo = await buscarHistoricoLimpo();
     const promptUsado = eModoLive ? IDENTIDADE_LIVE : IDENTIDADE_PADRAO;
 
@@ -316,18 +281,17 @@ async function processarChatUniversal(req, res) {
           break;
         }
       } catch (errApi) {
-        console.error(`[FALHA] ${item.nome}:`, errApi.message);
+        console.error(`[FALHA PROVEDOR ${item.nome}]:`, errApi.message);
       }
     }
 
     if (!textoResposta) {
-      textoResposta = "Desculpe Samuel, tive um erro de conexão temporário com os provedores de inteligência.";
+      textoResposta = "Desculpe Samuel, tive um problema de conexão com as IAs. Tente novamente em alguns segundos.";
       provedorUsado = "Sistema-Local";
     }
 
     let textoLimpoFinal = textoResposta.replace(/[*_#`]/g, '');
-    let audioBase64 = "";
-    try { audioBase64 = await gerarAudioEdgeTTS(textoLimpoFinal); } catch (e) {}
+    let audioBase64 = await gerarAudioEdgeTTS(textoLimpoFinal);
 
     if (dbColecao) {
       try {
