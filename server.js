@@ -4,21 +4,35 @@ const axios = require('axios');
 
 const app = express();
 
-// IMPORTANTE: Captura Texto Puro ANTES de tentar converter para JSON
-// Isso resolve o problema de envio do App Inventor / Kodular
 app.use(express.text({ type: '*/*', limit: '10mb' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// --- IDENTIDADE DA SEXTA-FEIRA ---
-const SISTEMA_IDENTIDADE = `Você é a Sexta-Feira, assistente pessoal e parceira do Samuel.
-- Responda SEMPRE de forma direta, inteligente, clara e elegante.
-- Se ele perguntar 'quem é você', apresente-se como Sexta-Feira, sua assistente virtual.
-- Responda com precisão e objetividade à pergunta exata que o Samuel fizer.
-- NUNCA invente histórias, bloqueios simulados, efeitos sonoros ou contadores de mensagem.`;
+// ==========================================
+// 1. INFORMAÇÕES PESSOAIS E PERFIL DO SAMUEL
+// ==========================================
+// Adicione ou edite aqui todas as informações que você quer que a Sexta-Feira saiba!
+const PERFIL_SAMUEL = `
+[DADOS E PERFIL DO USUÁRIO - SAMUEL]
+- Nome Completo: Samuel da Silva Pereira.
+- Papel do Usuário: Você é a assistente pessoal dedicada e de confiança do Samuel.
+- Conhecimento Geral: Você conhece a rotina do Samuel, seus objetivos financeiros, seus projetos de automação, sua família e suas preferências.
+- Comportamento com o Samuel: Responda de forma próxima, altamente inteligente, direta e leal. Nunca diga que tem 'acesso limitado' ou que 'é apenas uma IA sem dados'. Trate-se como a assistente pessoal dele integrada ao sistema.
+`;
+
+// --- IDENTIDADE E REGRAS DA SEXTA-FEIRA ---
+const SISTEMA_IDENTIDADE = `Você é a Sexta-Feira, assistente pessoal e inteligência artificial exclusiva do Samuel.
+
+${PERFIL_SAMUEL}
+
+[DIRETRIZES DE RESPOSTA]
+1. Responda SEMPRE de forma direta, clara, objetiva e inteligente à pergunta exata do Samuel.
+2. NUNCA diga 'tenho acesso limitado às suas informações' ou 'sou apenas uma IA sem acesso a dados externos'. Você é a assistente pessoal dele e possui a memória e perfil dele integrados.
+3. Se ele perguntar 'o que você sabe sobre mim', use as informações do perfil dele e a memória recente para responder com propriedade.
+4. Se faltar alguma informação específica que ele perguntou, responda com o que sabe e pergunte naturalmente como ele gostaria de registrar essa nova informação.`;
 
 // ==========================================
-// 1. BANCO DE DADOS (MongoDB Atlas)
+// 2. BANCO DE DADOS (MongoDB Atlas)
 // ==========================================
 const mongoUri = process.env.MONGO_URI;
 let dbColecao = null;
@@ -39,7 +53,7 @@ conectarBanco();
 async function buscarHistoricoLimpo() {
   if (!dbColecao) return [];
   try {
-    const historico = await dbColecao.find({}).sort({ _id: -1 }).limit(4).toArray();
+    const historico = await dbColecao.find({}).sort({ _id: -1 }).limit(6).toArray();
     return historico.reverse().filter(h => h.usuario && h.resposta);
   } catch (erro) { return []; }
 }
@@ -54,32 +68,26 @@ async function limparMemoriaBanco() {
 }
 
 // ==========================================
-// 2. EXTRATOR ULTRA-RESISTENTE DE TEXTO DO APP
+// 3. EXTRATOR DE TEXTO DO APP
 // ==========================================
 function extrairTextoDoRequest(req) {
   if (!req.body && !req.query) return "";
 
-  // 1. Se o App Inventor enviou Texto Puro (String)
   if (typeof req.body === 'string') {
     const textoLimpo = req.body.trim();
     if (!textoLimpo) return "";
-    
-    // Tenta ver se a string é um JSON oculto
     try {
       const parsed = JSON.parse(textoLimpo);
       return parsed.mensagem || parsed.message || parsed.text || parsed.query || parsed.msg || Object.values(parsed)[0] || textoLimpo;
     } catch (e) {
-      // Se não for JSON, é o próprio texto digitado ("teste", "quem e você", etc)
       return textoLimpo;
     }
   }
 
-  // 2. Se req.body for Objeto JSON
   if (req.body && typeof req.body === 'object') {
     return req.body.mensagem || req.body.message || req.body.text || req.body.query || req.body.msg || Object.values(req.body)[0] || "";
   }
 
-  // 3. Se veio via URL (Query String)
   if (req.query) {
     return req.query.mensagem || req.query.text || req.query.q || req.query.msg || Object.values(req.query)[0] || "";
   }
@@ -88,7 +96,7 @@ function extrairTextoDoRequest(req) {
 }
 
 // ==========================================
-// 3. APIS DE IA (Gemini / Groq / Mistral)
+// 4. APIS DE IA (Gemini / Groq / Mistral)
 // ==========================================
 
 async function chamarGemini(mensagemUsuario, historicoAnterior) {
@@ -174,7 +182,7 @@ async function chamarMistral(mensagemUsuario, historicoAnterior) {
 }
 
 // ==========================================
-// 4. VOZ (Edge TTS)
+// 5. VOZ (Edge TTS)
 // ==========================================
 async function gerarAudioEdgeTTS(texto) {
   try {
@@ -201,32 +209,6 @@ async function gerarAudioEdgeTTS(texto) {
 }
 
 // ==========================================
-// 5. RECONHECIMENTO FACIAL
-// ==========================================
-app.post('/reconhecer', async (req, res) => {
-  try {
-    const { imagemBase64 } = req.body;
-    if (!imagemBase64) return res.status(400).json({ sucesso: false, mensagem: "Nenhuma imagem enviada." });
-
-    const API_1_URL = process.env.API_1_URL || 'https://api.luxand.cloud/photo/v2';
-    const API_1_KEY = process.env.API_1_KEY || process.env.API_1_TOKEN || '';
-
-    let nomeReconhecido = "Samuel";
-    try {
-      const respostaApi1 = await axios.post(API_1_URL, { image: imagemBase64 }, { headers: { 'token': API_1_KEY } });
-      nomeReconhecido = respostaApi1.data.name || 'Samuel';
-    } catch (e) {}
-
-    const textoResposta = `Reconhecimento concluído. Olá Samuel, em que posso ser útil?`;
-    let audioBase64 = await gerarAudioEdgeTTS(textoResposta);
-
-    return res.json({ sucesso: true, resposta: textoResposta, reply: textoResposta, text: textoResposta, nome: nomeReconhecido, audio: audioBase64 });
-  } catch (error) {
-    return res.status(500).json({ sucesso: false, erro: error.message });
-  }
-});
-
-// ==========================================
 // 6. PROCESSADOR CHAT UNIVERSAL
 // ==========================================
 async function processarChatUniversal(req, res) {
@@ -235,12 +217,8 @@ async function processarChatUniversal(req, res) {
   try {
     const mensagemUsuario = extrairTextoDoRequest(req);
 
-    console.log(`\n========================================`);
-    console.log(`[TEXTO CAPTURADO DO APP]: "${mensagemUsuario}"`);
-    console.log(`========================================`);
-
     if (!mensagemUsuario) {
-      const txtAlerta = "Atenção Samuel: O campo de texto do seu aplicativo está chegando vazio no servidor. Verifique o botão de envio no aplicativo.";
+      const txtAlerta = "Atenção Samuel: O campo de texto do seu aplicativo está chegando vazio no servidor.";
       let audAlerta = await gerarAudioEdgeTTS(txtAlerta);
       return res.json({ resposta: txtAlerta, reply: txtAlerta, text: txtAlerta, audio: audAlerta });
     }
@@ -248,7 +226,7 @@ async function processarChatUniversal(req, res) {
     const msgBaixa = mensagemUsuario.toLowerCase();
     if (msgBaixa === "reset" || msgBaixa === "limpar" || msgBaixa === "/reset") {
       await limparMemoriaBanco();
-      const txtReset = "Memória resetada com sucesso, Samuel! Históricos antigos apagados. Como posso te ajudar?";
+      const txtReset = "Memória recente limpa com sucesso, Samuel! Como posso te ajudar agora?";
       let audReset = await gerarAudioEdgeTTS(txtReset);
       return res.json({ resposta: txtReset, reply: txtReset, text: txtReset, audio: audReset });
     }
@@ -265,11 +243,9 @@ async function processarChatUniversal(req, res) {
 
     for (const item of ordemExecucao) {
       try {
-        console.log(`[PROCESSANDO] Pergunta: "${mensagemUsuario}" via ${item.nome}...`);
         textoResposta = await item.funcao();
         if (textoResposta && textoResposta.trim() !== "") {
           provedorUsado = item.nome;
-          console.log(`[SUCESSO] Respondido por ${item.nome}`);
           break;
         }
       } catch (errApi) {
@@ -278,7 +254,7 @@ async function processarChatUniversal(req, res) {
     }
 
     if (!textoResposta) {
-      textoResposta = "Desculpe Samuel, tive uma instabilidade temporária. Pode tentar novamente?";
+      textoResposta = "Samuel, tive uma pequena instabilidade de conexão. Pode repetir?";
       provedorUsado = "Sistema-Local";
     }
 
@@ -294,7 +270,6 @@ async function processarChatUniversal(req, res) {
 
     return res.json({ resposta: textoLimpoFinal, reply: textoLimpoFinal, text: textoLimpoFinal, audio: audioBase64 });
   } catch (error) {
-    console.error(`[ERRO CRÍTICO NO CHAT]:`, error.message);
     return res.json({ resposta: "Erro no servidor ao processar sua solicitação.", reply: "Erro no servidor ao processar sua solicitação.", text: "Erro no servidor ao processar sua solicitação." });
   }
 }
